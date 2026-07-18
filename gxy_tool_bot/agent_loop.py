@@ -10,6 +10,21 @@ from gxy_tool_bot.api_client import ApiClient, ChatResponse
 
 logger = logging.getLogger(__name__)
 
+_TOOL_TIMEOUT_SECONDS = 120
+
+
+def _run_tool_with_timeout(handler: Callable[[dict], str], args: dict, timeout: int = _TOOL_TIMEOUT_SECONDS) -> str:
+    """Run a tool handler with a wall-clock timeout. Returns error string if timed out."""
+    import concurrent.futures
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(handler, args)
+        try:
+            return future.result(timeout=timeout)
+        except concurrent.futures.TimeoutError:
+            logger.warning("Tool call timed out after %ds", timeout)
+            return f"Error: tool call timed out after {timeout}s"
+
 
 @dataclass
 class ToolDefinition:
@@ -100,7 +115,7 @@ def run_agent_loop(
                     logger.warning(result)
                 else:
                     try:
-                        result = tool_def.handler(tc.arguments)
+                        result = _run_tool_with_timeout(tool_def.handler, tc.arguments)
                     except Exception as e:
                         result = f"Error: {e}"
                         logger.warning("Tool %s raised: %s", tc.name, e)

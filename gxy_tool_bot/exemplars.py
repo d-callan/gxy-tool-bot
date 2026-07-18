@@ -20,7 +20,7 @@ class Exemplar:
     name: str
 
 
-def fetch_exemplars(config: list[ExemplarConfig], max_chars: int = 50000) -> list[Exemplar]:
+def fetch_exemplars(config: list[ExemplarConfig], max_chars: int = 15000) -> list[Exemplar]:
     """
     Fetch exemplar tool XMLs (and optional macros) from GitHub raw URLs.
     Truncates each XML to max_chars. Caches to a temp directory to avoid

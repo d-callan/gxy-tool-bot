@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 def retry(
     fn: Callable[[], T],
-    max_attempts: int = 3,
+    max_attempts: int = 2,
     backoff_base: float = 1.0,
 ) -> T:
     """
