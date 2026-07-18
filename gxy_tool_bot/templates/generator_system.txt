@@ -28,3 +28,4 @@ Use the `write_file` tool function to produce each file. You must produce at min
 - Include `<citations>` with DOI citations where available.
 - Include at least one `<test>` case with test data.
 - If the tool needs macros, define them in `macros.xml` and import them in the tool XML.
+- **Every macro referenced via `<expand macro="NAME">` in the tool XML MUST be defined in `macros.xml`.** Common IUC macros that need definitions include: `requirements`, `version_command`, `stdio`, `citations`, `bio_tools`. Look at the exemplar macros.xml for the pattern — each is an `<xml name="NAME">` element inside `<macros>`. If you reference a macro, you must define it. Do not assume macros exist from an external source.

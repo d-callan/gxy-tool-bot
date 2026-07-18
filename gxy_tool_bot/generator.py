@@ -226,6 +226,10 @@ def validate_generated_files(files: list[GeneratedFile]) -> ValidationResult:
                 name = macro.get("name")
                 if name:
                     macro_tokens.add(name)
+            for xml_elem in root.iter("xml"):
+                name = xml_elem.get("name")
+                if name:
+                    macro_tokens.add(name)
 
     for path, root in xml_contents.items():
         if "macros.xml" in path:
@@ -308,9 +312,12 @@ def generate_tool(
             error_msg = (
                 "The following validation errors were found in the generated files:\n\n"
                 + "\n".join(f"- {e}" for e in validation.errors)
-                + "\n\nPlease fix these errors by rewriting the affected files with write_file. "
-                "Make sure all macro/token references in the tool XML are defined in macros.xml, "
-                "all test data files exist, and all XML is well-formed."
+                + "\n\nTo fix macro/token errors: add the missing <xml name=\"NAME\"> or <token name=\"NAME\">"
+                " definitions to macros.xml. Every <expand macro=\"NAME\"> in the tool XML must have a"
+                " matching definition in macros.xml.\n\n"
+                "To fix test data errors: write the missing test data files with write_file.\n\n"
+                "To fix XML parse errors: rewrite the file with valid XML.\n\n"
+                "Please fix these errors by rewriting the affected files with write_file."
             )
 
             result = run_agent_loop(

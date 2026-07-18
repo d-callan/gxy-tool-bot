@@ -94,3 +94,41 @@ def test_validation_defined_macro_ok() -> None:
     ]
     result = validate_generated_files(files)
     assert result.valid is True
+
+
+def test_validation_xml_macro_definition_ok() -> None:
+    """IUC macros.xml uses <xml name="..."> elements, not <macro name="...">."""
+    tool_xml = b"""<?xml version="1.0"?>
+<tool id="test" name="Test" version="1.0.0">
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <expand macro="citations"/>
+    <expand macro="bio_tools"/>
+</tool>"""
+    macros_xml = b"""<?xml version="1.0"?>
+<macros>
+    <token name="@TOOL_VERSION@">1.0</token>
+    <xml name="requirements">
+        <requirements>
+            <requirement type="package" version="@TOOL_VERSION@">test</requirement>
+        </requirements>
+    </xml>
+    <xml name="citations">
+        <citations>
+            <citation type="doi">10.1234/test</citation>
+        </citations>
+    </xml>
+    <xml name="bio_tools">
+        <xrefs>
+            <xref type="bio.tools">test</xref>
+        </xrefs>
+    </xml>
+</macros>"""
+    files = [
+        GeneratedFile(path="test.xml", content=tool_xml),
+        GeneratedFile(path="macros.xml", content=macros_xml),
+    ]
+    result = validate_generated_files(files)
+    assert result.valid is True
