@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -121,6 +122,9 @@ def generate(issue: int, config_path: str, output_dir: str) -> None:
                 sys.exit(1)
 
     with GitHubClient(gh_token, config.repo) as gh:
+        issue_data = gh.get_issue(issue)
+        request = parse_issue_body(issue_data.body)
+
         comments = gh.get_issue_comments(issue)
         plan_md = find_plan_comment(comments)
         if not plan_md:
@@ -129,6 +133,10 @@ def generate(issue: int, config_path: str, output_dir: str) -> None:
 
         logger.info("Generating tool from plan on issue #%d", issue)
         generated, result, validation = generate_tool(plan_md, config, api_key, Path(output_dir))
+
+        # Write tool name to a file so the workflow knows where to place files
+        tool_dir = re.sub(r'[^a-z0-9]+', '_', request.tool_name.lower()).strip('_')
+        (Path(output_dir) / ".tool-name").write_text(tool_dir)
 
         if not validation.valid:
             error_msg = "⚠️ Generation completed but validation found errors:\n\n"
