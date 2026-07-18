@@ -285,16 +285,52 @@ def generate_tool(
             temperature=config.api.temperature_generate,
         )
 
-    # Collect generated files
-    files = [
-        GeneratedFile(path=p, content=c)
-        for p, c in sorted(file_writer.files.items())
-    ]
+        # Collect generated files
+        files = [
+            GeneratedFile(path=p, content=c)
+            for p, c in sorted(file_writer.files.items())
+        ]
 
-    # Validate
-    validation = validate_generated_files(files)
-    if not validation.valid:
-        logger.warning("Validation errors: %s", validation.errors)
+        # Validate
+        validation = validate_generated_files(files)
+
+        # Validation retry loop: feed errors back to the agent so it can fix them
+        max_validation_retries = 3
+        for retry in range(max_validation_retries):
+            if validation.valid:
+                break
+
+            logger.warning(
+                "Validation errors (attempt %d/%d): %s",
+                retry + 1, max_validation_retries, validation.errors,
+            )
+
+            error_msg = (
+                "The following validation errors were found in the generated files:\n\n"
+                + "\n".join(f"- {e}" for e in validation.errors)
+                + "\n\nPlease fix these errors by rewriting the affected files with write_file. "
+                "Make sure all macro/token references in the tool XML are defined in macros.xml, "
+                "all test data files exist, and all XML is well-formed."
+            )
+
+            result = run_agent_loop(
+                client=client,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                tools=tools,
+                max_iterations=config.api.max_tool_iterations,
+                temperature=config.api.temperature_generate,
+                messages=result.messages + [{"role": "user", "content": error_msg}],
+            )
+
+            files = [
+                GeneratedFile(path=p, content=c)
+                for p, c in sorted(file_writer.files.items())
+            ]
+            validation = validate_generated_files(files)
+
+        if not validation.valid:
+            logger.warning("Validation errors after %d retries: %s", max_validation_retries, validation.errors)
 
     generated = GeneratedTool(
         files=files,

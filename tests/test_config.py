@@ -36,7 +36,7 @@ def test_load_valid_config(tmp_path: Path) -> None:
 
     assert config.api.base_url == "https://api.example.com/v1"
     assert config.api.model == "test-model"
-    assert config.api.max_tool_iterations == 10
+    assert config.api.max_tool_iterations == 25
     assert config.api.temperature_plan == 0.4
     assert config.api.temperature_generate == 0.2
     assert config.api.max_context_chars == 100_000

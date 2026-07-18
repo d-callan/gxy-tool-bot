@@ -25,6 +25,7 @@ class AgentResult:
     tool_call_trace: list[dict]  # log of all tool calls + results
     iterations: int  # how many loop iterations occurred
     terminated_naturally: bool  # True if the agent stopped on its own
+    messages: list[dict] = None  # full conversation history for continuation
 
 
 def run_agent_loop(
@@ -34,6 +35,7 @@ def run_agent_loop(
     tools: list[ToolDefinition],
     max_iterations: int = 10,
     temperature: float = 0.4,
+    messages: list[dict] | None = None,
 ) -> AgentResult:
     """
     Run a tool-use loop:
@@ -41,6 +43,9 @@ def run_agent_loop(
     2. If response has tool_calls, execute them and append results.
     3. Repeat until response has no tool_calls or max_iterations reached.
     4. Return final content + trace of all tool calls made.
+
+    If `messages` is provided, continues from that conversation history
+    (ignores system_prompt and user_prompt). Used for validation retry loops.
     """
     tool_map = {t.name: t for t in tools}
     tool_schemas = [
@@ -48,10 +53,13 @@ def run_agent_loop(
         for t in tools
     ]
 
-    messages: list[dict] = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_prompt},
-    ]
+    if messages is not None:
+        messages = list(messages)  # shallow copy to avoid mutating caller's list
+    else:
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
 
     trace: list[dict] = []
     iterations = 0
@@ -127,4 +135,5 @@ def run_agent_loop(
         tool_call_trace=trace,
         iterations=iterations,
         terminated_naturally=terminated_naturally,
+        messages=messages,
     )
