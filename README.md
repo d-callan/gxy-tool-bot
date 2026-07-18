@@ -41,6 +41,7 @@ api:
   temperature_plan: 0.4
   temperature_generate: 0.2
   max_context_chars: 100000
+  max_validation_retries: 3
 
 exemplars:
   - url: https://raw.githubusercontent.com/galaxyproject/tools-iuc/main/tools/bcftools/bcftools_view.xml

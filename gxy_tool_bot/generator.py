@@ -295,7 +295,7 @@ def generate_tool(
         validation = validate_generated_files(files)
 
         # Validation retry loop: feed errors back to the agent so it can fix them
-        max_validation_retries = 3
+        max_validation_retries = config.api.max_validation_retries
         for retry in range(max_validation_retries):
             if validation.valid:
                 break
