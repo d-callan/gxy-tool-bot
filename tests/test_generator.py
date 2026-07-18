@@ -32,6 +32,13 @@ def test_validation_valid_xml(tmp_path: Path) -> None:
     assert result.errors == []
 
 
+def test_validation_no_files() -> None:
+    """Validation should fail if no files were generated at all."""
+    result = validate_generated_files([])
+    assert result.valid is False
+    assert any("No XML files" in e for e in result.errors)
+
+
 def test_validation_malformed_xml() -> None:
     xml = b"<tool><command>broken"
     files = [GeneratedFile(path="test.xml", content=xml)]

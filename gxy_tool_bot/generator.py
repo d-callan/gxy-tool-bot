@@ -189,6 +189,12 @@ def validate_generated_files(files: list[GeneratedFile]) -> ValidationResult:
     errors: list[str] = []
     file_paths = {f.path for f in files}
 
+    # Must have at least one XML file
+    xml_files = [f for f in files if f.path.endswith(".xml")]
+    if not xml_files:
+        errors.append("No XML files were generated — the agent must produce at least a tool XML file")
+        return ValidationResult(valid=False, errors=errors)
+
     # Parse XML files
     xml_contents: dict[str, ET.Element] = {}
     for f in files:

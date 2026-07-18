@@ -18,6 +18,7 @@ Use the `write_file` tool function to produce each file. You must produce at min
 
 ## Guidelines
 
+- **Start writing files early.** Do not spend all iterations researching — write the tool XML and macros.xml first, then refine. The plan should have most of what you need.
 - Follow the plan closely. If the plan says to use a specific CLI flag, use it.
 - Follow IUC conventions strictly: naming, macros, tests, help section, citations.
 - Use `write_file` for each file. The path must be relative (e.g. `my_tool.xml`, `macros.xml`, `test-data/sample.bam`).
