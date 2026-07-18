@@ -10,7 +10,7 @@ So this is an agentic bot that generates [Galaxy](https://galaxyproject.org/) to
 
 ## Current Status
 
-This repository is a rough draft. It is untested and largely unreviewed yet. It mostly represents a plan for how I imagine the library should work, rather than a promise for how it actually works. Use at your own risk.
+This repository is under active development. The bot can plan tool wrappers, generate XML/macros/test data, and open PRs automatically. It has been tested end-to-end on real tool requests. Expect rough edges and iterate on configuration as needed.
 
 ## How it works
 
