@@ -98,7 +98,8 @@ def plan(issue: int, config_path: str) -> None:
 @click.option("--issue", type=int, required=True, help="GitHub issue number")
 @click.option("--config", "config_path", type=click.Path(exists=True), default=".gxy-tool-bot.yml")
 @click.option("--output", "output_dir", type=click.Path(), default="generated/")
-def generate(issue: int, config_path: str, output_dir: str) -> None:
+@click.option("--actor", default=None, help="GitHub user who triggered the action (for maintainer check)")
+def generate(issue: int, config_path: str, output_dir: str, actor: str | None) -> None:
     """Generate tool files from a plan in a GitHub issue."""
     config = load_config(Path(config_path))
     api_key = os.environ.get("GXY_TOOL_BOT_API_KEY")
@@ -113,13 +114,12 @@ def generate(issue: int, config_path: str, output_dir: str) -> None:
 
     # Check allowed_maintainers if configured
     if config.allowed_maintainers:
-        with GitHubClient(gh_token, config.repo) as gh:
-            issue_data = gh.get_issue(issue)
-            actor = issue_data.author
-            if actor not in config.allowed_maintainers:
-                click.echo(f"Error: user '{actor}' is not in allowed_maintainers list", err=True)
-                gh.add_comment(issue, f"⚠️ Generation blocked: user '{actor}' is not in the allowed maintainers list.")
-                sys.exit(1)
+        if not actor or actor not in config.allowed_maintainers:
+            who = actor or "unknown"
+            click.echo(f"Error: user '{who}' is not in allowed_maintainers list", err=True)
+            with GitHubClient(gh_token, config.repo) as gh:
+                gh.add_comment(issue, f"⚠️ Generation blocked: user '{who}' is not in the allowed maintainers list.")
+            sys.exit(1)
 
     with GitHubClient(gh_token, config.repo) as gh:
         issue_data = gh.get_issue(issue)
