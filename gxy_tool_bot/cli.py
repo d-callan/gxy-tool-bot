@@ -132,7 +132,13 @@ def generate(issue: int, config_path: str, output_dir: str) -> None:
             sys.exit(1)
 
         logger.info("Generating tool from plan on issue #%d", issue)
-        generated, result, validation = generate_tool(plan_md, config, api_key, Path(output_dir))
+        try:
+            generated, result, validation = generate_tool(plan_md, config, api_key, Path(output_dir))
+        except Exception as exc:
+            logger.exception("Tool generation failed")
+            gh.add_comment(issue, f"⚠️ Tool generation failed: {exc}\n\nAdd the `retry-generate` label to try again.")
+            gh.add_label(issue, config.labels.generation_failed)
+            sys.exit(2)
 
         # Write tool name to a file so the workflow knows where to place files
         tool_dir = re.sub(r'[^a-z0-9]+', '_', request.tool_name.lower()).strip('_')

@@ -48,10 +48,16 @@ class FileWriter:
         path = args.get("path", "")
         content = args.get("content", "")
 
+        if not path or "/" == path or path.endswith("/"):
+            return f"Error: path '{path}' is invalid — must include a filename"
+
         # Validate path is within output_dir
         dest = (self.output_dir / path).resolve()
         if not dest.is_relative_to(self.output_dir.resolve()):
             return f"Error: path '{path}' is outside the output directory"
+
+        if dest == self.output_dir.resolve():
+            return f"Error: path '{path}' resolves to the output directory itself — must include a filename"
 
         # Convert content to bytes
         if isinstance(content, str):

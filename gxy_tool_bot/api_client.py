@@ -62,7 +62,14 @@ class ApiClient:
             headers={"Authorization": f"Bearer {self.api_key}"},
         )
         resp.raise_for_status()
-        data = resp.json()
+
+        try:
+            data = resp.json()
+        except json.JSONDecodeError:
+            logger.error("API returned non-JSON response (status %d, %d bytes): %s",
+                         resp.status_code, len(resp.content),
+                         resp.text[:500])
+            raise RuntimeError(f"API returned non-JSON response (status {resp.status_code}). First 500 chars: {resp.text[:500]}")
 
         choice = data["choices"][0]
         msg = choice["message"]
