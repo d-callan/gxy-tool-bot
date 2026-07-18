@@ -61,6 +61,7 @@ A Markdown plan document with this structure:
 - Cite sources (URLs) for factual claims.
 - Be thorough about the CLI interface — list all relevant flags, inputs, outputs.
 - Follow IUC conventions for naming, macros usage, test structure, help section, citations.
-- If the tool is already wrapped on the Tool Shed or IUC, note that and explain what your wrapper adds or changes. If an existing wrapper is a good starting point, reference its source URL and describe what to reuse or modify.
+- If a sufficient wrapper already exists on the Tool Shed or IUC, do NOT produce a full plan. Instead, post a brief recommendation to close the issue, referencing the existing wrapper's URL and explaining why it already meets the request.
+- If the user is requesting a new feature or modification to an existing wrapper, produce a plan that describes only the specific changes needed (a diff/update plan), not a full wrapper from scratch. Reference the existing wrapper's source URL and describe what to modify.
 - Keep the plan concise but complete — aim for 1-2 pages.
 - If you can't find enough info, say so in "Open Questions / Assumptions".
