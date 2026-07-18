@@ -153,12 +153,8 @@ def generate(issue: int, config_path: str, output_dir: str) -> None:
 def generate_site_cmd(config_path: str, output_dir: str) -> None:
     """Generate the static HTML request form."""
     config = load_config(Path(config_path))
-    issue_token = os.environ.get("GXY_ISSUE_TOKEN")
-    if not issue_token:
-        click.echo("Error: GXY_ISSUE_TOKEN environment variable not set", err=True)
-        sys.exit(1)
 
-    generate_site(config.site, Path(output_dir), issue_token)
+    generate_site(config.site, Path(output_dir))
     click.echo(f"Site generated in {output_dir}")
 
 
