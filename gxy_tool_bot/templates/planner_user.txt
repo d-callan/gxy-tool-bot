@@ -1,0 +1,20 @@
+## Tool Request
+
+**Tool name:** {{ tool_name }}
+**Description:** {{ description }}
+**Links:**
+{% for link in links %}- {{ link }}
+{% endfor %}
+{% if contact %}**Contact:** {{ contact }}{% endif %}
+
+## Pre-fetched Lookup Data
+
+{{ lookup_context }}
+
+## Exemplar Galaxy Tool XMLs
+
+{{ exemplars }}
+
+---
+
+Produce a plan following the format specified in the system prompt. Use the lookup data above. If you need more information, use the available tool functions.

@@ -1,0 +1,11 @@
+## Plan
+
+{{ plan }}
+
+## Exemplar Galaxy Tool XMLs
+
+{{ exemplars }}
+
+---
+
+Generate the tool files following the plan. Use `write_file` for each file. Follow IUC conventions strictly.
