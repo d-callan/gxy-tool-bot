@@ -1,0 +1,26 @@
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.gxy-tool-bot.yml'
+      - 'pyproject.toml'
+  workflow_dispatch:
+
+jobs:
+  deploy-site:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install gxy-tool-bot
+      - name: Generate site
+        env:
+          GXY_ISSUE_TOKEN: ${{ secrets.GXY_ISSUE_TOKEN }}
+        run: gxy-tool-bot generate-site --config .gxy-tool-bot.yml --output site-output
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./site-output
