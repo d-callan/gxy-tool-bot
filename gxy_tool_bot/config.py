@@ -26,13 +26,6 @@ class ExemplarConfig:
 
 
 @dataclass
-class SiteConfig:
-    title: str
-    repo: str
-    description: str | None = None
-
-
-@dataclass
 class LabelConfig:
     request: str = "tool-request"
     plan_ready: str = "plan-ready"
@@ -45,7 +38,7 @@ class LabelConfig:
 class BotConfig:
     api: ApiConfig
     exemplars: list[ExemplarConfig]
-    site: SiteConfig
+    repo: str
     labels: LabelConfig = field(default_factory=LabelConfig)
     allowed_maintainers: list[str] | None = None
 
@@ -79,14 +72,9 @@ def load_config(path: Path) -> BotConfig:
         for e in exemplars_raw
     ]
 
-    site_raw = raw.get("site")
-    if not site_raw:
-        raise ValueError("Config missing required 'site' section")
-    site = SiteConfig(
-        title=site_raw["title"],
-        repo=site_raw["repo"],
-        description=site_raw.get("description"),
-    )
+    repo = raw.get("repo")
+    if not repo:
+        raise ValueError("Config missing required 'repo' field (e.g. 'owner/repo')")
 
     labels_raw = raw.get("labels", {})
     labels = LabelConfig(
@@ -102,7 +90,7 @@ def load_config(path: Path) -> BotConfig:
     return BotConfig(
         api=api,
         exemplars=exemplars,
-        site=site,
+        repo=repo,
         labels=labels,
         allowed_maintainers=allowed_maintainers,
     )

@@ -67,7 +67,7 @@ def plan(issue: int, config_path: str) -> None:
         click.echo("Error: GH_TOKEN environment variable not set", err=True)
         sys.exit(1)
 
-    with GitHubClient(gh_token, config.site.repo) as gh:
+    with GitHubClient(gh_token, config.repo) as gh:
         issue_data = gh.get_issue(issue)
         request = parse_issue_body(issue_data.body)
 
@@ -112,7 +112,7 @@ def generate(issue: int, config_path: str, output_dir: str) -> None:
 
     # Check allowed_maintainers if configured
     if config.allowed_maintainers:
-        with GitHubClient(gh_token, config.site.repo) as gh:
+        with GitHubClient(gh_token, config.repo) as gh:
             issue_data = gh.get_issue(issue)
             actor = issue_data.author
             if actor not in config.allowed_maintainers:
@@ -120,7 +120,7 @@ def generate(issue: int, config_path: str, output_dir: str) -> None:
                 gh.add_comment(issue, f"⚠️ Generation blocked: user '{actor}' is not in the allowed maintainers list.")
                 sys.exit(1)
 
-    with GitHubClient(gh_token, config.site.repo) as gh:
+    with GitHubClient(gh_token, config.repo) as gh:
         comments = gh.get_issue_comments(issue)
         plan_md = find_plan_comment(comments)
         if not plan_md:

@@ -49,10 +49,7 @@ exemplars:
   - url: https://raw.githubusercontent.com/galaxyproject/tools-iuc/main/tools/seqtk/seqtk_seq.xml
     macros: https://raw.githubusercontent.com/galaxyproject/tools-iuc/main/tools/seqtk/macros.xml
 
-site:
-  title: Galaxy Tool Request
-  repo: your-org/your-repo
-  description: Request a new Galaxy tool wrapper to be generated automatically.
+repo: your-org/your-repo
 
 allowed_maintainers:
   - your-github-handle
@@ -60,7 +57,7 @@ allowed_maintainers:
 
 ### 3. Create GitHub labels
 
-Create these five labels in the repo (Settings → Labels):
+Create these seven labels in the repo (Settings → Labels):
 
 | Label | Color | Purpose |
 |-------|-------|---------|

@@ -23,10 +23,7 @@ def _valid_config() -> dict:
         "exemplars": [
             {"url": "https://example.com/tool.xml"},
         ],
-        "site": {
-            "title": "Test Site",
-            "repo": "owner/repo",
-        },
+        "repo": "owner/repo",
     }
 
 
@@ -44,8 +41,7 @@ def test_load_valid_config(tmp_path: Path) -> None:
     assert len(config.exemplars) == 1
     assert config.exemplars[0].url == "https://example.com/tool.xml"
 
-    assert config.site.title == "Test Site"
-    assert config.site.repo == "owner/repo"
+    assert config.repo == "owner/repo"
 
     assert config.labels.request == "tool-request"
     assert config.labels.generation_failed == "generation-failed"
@@ -69,11 +65,11 @@ def test_load_config_missing_exemplars(tmp_path: Path) -> None:
         load_config(path)
 
 
-def test_load_config_missing_site(tmp_path: Path) -> None:
+def test_load_config_missing_repo(tmp_path: Path) -> None:
     data = _valid_config()
-    del data["site"]
+    del data["repo"]
     path = _write_config(tmp_path, data)
-    with pytest.raises(ValueError, match="site"):
+    with pytest.raises(ValueError, match="repo"):
         load_config(path)
 
 
