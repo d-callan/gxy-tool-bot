@@ -6,7 +6,7 @@ Your task is to research a bioinformatics tool and produce a detailed plan for a
 
 You will receive:
 1. A tool request (name, description, links from the requester).
-2. Pre-fetched lookup data (bioconda package info, GitHub repo info, publications, README).
+2. Pre-fetched lookup data (bioconda package info, GitHub repo info, publications, README, existing Tool Shed wrappers).
 3. One or more exemplar Galaxy tool XMLs from the IUC tools collection — use these as style references.
 4. Tool functions you can call if you need more information.
 
@@ -61,6 +61,6 @@ A Markdown plan document with this structure:
 - Cite sources (URLs) for factual claims.
 - Be thorough about the CLI interface — list all relevant flags, inputs, outputs.
 - Follow IUC conventions for naming, macros usage, test structure, help section, citations.
-- If the tool is already wrapped on IUC, note that and explain what your wrapper adds or changes.
+- If the tool is already wrapped on the Tool Shed or IUC, note that and explain what your wrapper adds or changes. If an existing wrapper is a good starting point, reference its source URL and describe what to reuse or modify.
 - Keep the plan concise but complete — aim for 1-2 pages.
 - If you can't find enough info, say so in "Open Questions / Assumptions".

@@ -16,11 +16,13 @@ from gxy_tool_bot.lookups import (
     BiocondaInfo,
     GitHubRepoInfo,
     PublicationInfo,
+    ToolShedResult,
     fetch_doi_metadata,
     fetch_url,
     search_bioconda,
     search_github,
     search_pubmed,
+    search_tool_shed,
     search_web,
 )
 
@@ -44,6 +46,7 @@ class LookupContext:
     publications: list[PublicationInfo]
     readme: str | None
     raw_urls: list[str]
+    tool_shed: ToolShedResult | None
 
 
 def _extract_doi_from_links(links: list[str]) -> str | None:
@@ -94,12 +97,16 @@ def _run_lookups(request: ToolRequest) -> LookupContext:
         except Exception as e:
             logger.warning("Failed to fetch user URL %s: %s", link, e)
 
+    # Search Tool Shed for existing wrappers
+    tool_shed = search_tool_shed(request.tool_name)
+
     return LookupContext(
         bioconda=bioconda,
         github=github,
         publications=publications,
         readme=readme,
         raw_urls=raw_urls,
+        tool_shed=tool_shed,
     )
 
 
@@ -166,6 +173,16 @@ def _build_tool_definitions() -> list[ToolDefinition]:
             },
             handler=lambda args: _format_web_results(search_web(args["query"])),
         ),
+        ToolDefinition(
+            name="search_tool_shed",
+            description="Search the Galaxy Tool Shed for existing tool wrappers. Returns repo name, owner, description, and GitHub source URL. Use this to check if a wrapper already exists before generating one.",
+            parameters={
+                "type": "object",
+                "properties": {"query": {"type": "string", "description": "Tool name to search for"}},
+                "required": ["query"],
+            },
+            handler=lambda args: _format_tool_shed(search_tool_shed(args["query"])),
+        ),
     ]
 
 
@@ -229,6 +246,19 @@ def _format_web_results(results: list) -> str:
     } for r in results])
 
 
+def _format_tool_shed(result: ToolShedResult | None) -> str:
+    if not result or not result.repos:
+        return "No existing Tool Shed repositories found."
+    return json.dumps([{
+        "name": r.name,
+        "owner": r.owner,
+        "description": r.description,
+        "source_url": r.remote_repository_url,
+        "homepage": r.homepage_url,
+        "downloads": r.times_downloaded,
+    } for r in result.repos])
+
+
 def _build_lookup_context_text(ctx: LookupContext) -> str:
     """Format LookupContext as text for the prompt."""
     parts: list[str] = []
@@ -254,6 +284,15 @@ def _build_lookup_context_text(ctx: LookupContext) -> str:
 
     for raw in ctx.raw_urls:
         parts.append(raw)
+
+    if ctx.tool_shed and ctx.tool_shed.repos:
+        parts.append("**Existing Tool Shed wrappers:**")
+        for r in ctx.tool_shed.repos[:5]:
+            parts.append(f"- {r.name} (owner: {r.owner}, downloads: {r.times_downloaded}) — {r.description.strip()}")
+            if r.remote_repository_url:
+                parts.append(f"  Source: {r.remote_repository_url}")
+    else:
+        parts.append("**Existing Tool Shed wrappers:** none found")
 
     return "\n\n".join(parts)
 
