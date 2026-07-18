@@ -67,7 +67,8 @@ Create these five labels in the repo (Settings → Labels):
 | `plan-ready` | `#a2eeef` | Applied by bot after plan is posted |
 | `ready-to-implement` | `#0e8a16` | Applied by maintainer to approve plan; triggers generation |
 | `pr-opened` | `#1d76db` | Applied by bot after PR is created |
-| `generation-failed` | `#b60205` | Applied by bot if generation fails |
+| `generation-failed` | `#b60205` | Applied by bot if generation or planning fails |
+| `retry-plan` | `#fbca04` | Applied by user/maintainer to re-trigger planning after a failure |
 
 ### 4. Add the issue template
 
@@ -77,7 +78,7 @@ Copy `.github/ISSUE_TEMPLATE/tool-request.yml` from this repo into your repo's `
 
 Copy the two workflow templates into `.github/workflows/`:
 
-- **`gxy-on-tool-request.yml`** — triggers on new issues with `tool-request` label, runs the planner
+- **`gxy-on-tool-request.yml`** — triggers on new issues with `tool-request` label or when `retry-plan` label is added; runs the planner
 - **`gxy-on-ready-to-implement.yml`** — triggers when `ready-to-implement` label is added, runs the generator and opens a PR
 
 Both workflows install the bot from GitHub:

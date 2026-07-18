@@ -72,7 +72,13 @@ def plan(issue: int, config_path: str) -> None:
         request = parse_issue_body(issue_data.body)
 
         logger.info("Planning tool: %s", request.tool_name)
-        plan_md, result = generate_plan(request, config, api_key)
+        try:
+            plan_md, result = generate_plan(request, config, api_key)
+        except Exception as exc:
+            logger.exception("Plan generation failed")
+            gh.add_comment(issue, f"⚠️ Plan generation failed: {exc}\n\nAdd the `retry-plan` label to try again.")
+            gh.add_label(issue, config.labels.generation_failed)
+            sys.exit(2)
 
         # Post plan as comment with hidden marker
         comment_body = f"{PLAN_MARKER}\n{plan_md}"
