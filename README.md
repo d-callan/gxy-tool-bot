@@ -75,10 +75,10 @@ Copy `.github/ISSUE_TEMPLATE/tool-request.yml` from this repo into your repo's `
 
 ### 5. Add workflow files
 
-Copy the two workflow templates into `.github/workflows/`:
+Copy the two workflow templates from the [`workflows/`](workflows/) directory in this repo into your repo's `.github/workflows/`:
 
-- **`gxy-on-tool-request.yml`** — triggers on new issues with `tool-request` label or when `retry-plan` label is added; runs the planner
-- **`gxy-on-ready-to-implement.yml`** — triggers when `ready-to-implement` or `retry-generate` label is added; runs the generator and opens a PR
+- **`on-tool-request.yml`** → `.github/workflows/gxy-on-tool-request.yml` — triggers on new issues with `tool-request` label or when `retry-plan` label is added; runs the planner
+- **`on-ready-to-implement.yml`** → `.github/workflows/gxy-on-ready-to-implement.yml` — triggers when `ready-to-implement` or `retry-generate` label is added; runs the generator and opens a PR
 
 Both workflows install the bot from GitHub:
 

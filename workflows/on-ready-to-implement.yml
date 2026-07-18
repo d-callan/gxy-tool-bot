@@ -4,7 +4,9 @@ on:
 
 jobs:
   generate:
-    if: github.event.label.name == 'ready-to-implement'
+    if: |
+      github.event.label.name == 'ready-to-implement' ||
+      github.event.label.name == 'retry-generate'
     runs-on: ubuntu-latest
     # Note: if allowed_maintainers is configured, the CLI verifies
     # github.event.actor is in the list and exits with code 1 if not.
@@ -13,7 +15,16 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: pip install gxy-tool-bot
+      - run: pip install git+https://github.com/d-callan/gxy-tool-bot.git
+      - name: Remove retry-generate and generation-failed labels
+        if: github.event.label.name == 'retry-generate'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue edit ${{ github.event.issue.number }} \
+            --remove-label "retry-generate" || true
+          gh issue edit ${{ github.event.issue.number }} \
+            --remove-label "generation-failed" || true
       - name: Generate tool files
         id: generate
         env:
@@ -29,10 +40,15 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          git config user.name "gxy-tool-bot"
+          git config user.email "gxy-tool-bot@users.noreply.github.com"
+          TOOL_DIR=$(cat generated/.tool-name)
+          mkdir -p "tools/$TOOL_DIR"
+          cp -r generated/* "tools/$TOOL_DIR/"
+          rm -rf generated/
           BRANCH="tool-bot/issue-${{ github.event.issue.number }}"
           git checkout -b "$BRANCH"
-          cp -r generated/* .
-          git add -A
+          git add "tools/$TOOL_DIR/"
           git commit -m "Generate tool for issue #${{ github.event.issue.number }}
 
           Closes #${{ github.event.issue.number }}"
