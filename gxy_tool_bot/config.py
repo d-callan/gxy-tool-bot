@@ -12,7 +12,7 @@ import yaml
 class ApiConfig:
     base_url: str
     model: str
-    max_tool_iterations: int = 10
+    max_tool_iterations: int = 25
     temperature_plan: float = 0.4
     temperature_generate: float = 0.2
     max_context_chars: int = 100_000
@@ -63,7 +63,7 @@ def load_config(path: Path) -> BotConfig:
     api = ApiConfig(
         base_url=api_raw["base_url"],
         model=api_raw["model"],
-        max_tool_iterations=api_raw.get("max_tool_iterations", 10),
+        max_tool_iterations=api_raw.get("max_tool_iterations", 25),
         temperature_plan=api_raw.get("temperature_plan", 0.4),
         temperature_generate=api_raw.get("temperature_generate", 0.2),
         max_context_chars=api_raw.get("max_context_chars", 100_000),

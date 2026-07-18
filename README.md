@@ -37,7 +37,7 @@ Create `.gxy-tool-bot.yml` in the repo root:
 api:
   base_url: https://openrouter.ai/api/v1   # or https://api.openai.com/v1
   model: z-ai/glm-5.2                       # or gpt-4o, etc.
-  max_tool_iterations: 10
+  max_tool_iterations: 25
   temperature_plan: 0.4
   temperature_generate: 0.2
   max_context_chars: 100000
