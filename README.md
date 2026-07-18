@@ -71,7 +71,7 @@ Create these five labels in the repo (Settings → Labels):
 
 ### 4. Add the issue template
 
-Create `.github/ISSUE_TEMPLATE/tool-request.yml` — see the [template in tools-iuc](https://github.com/d-callan/tools-iuc/blob/main/.github/ISSUE_TEMPLATE/tool-request.yml) for a ready-to-use example. The template auto-applies the `tool-request` label.
+Copy `.github/ISSUE_TEMPLATE/tool-request.yml` from this repo into your repo's `.github/ISSUE_TEMPLATE/` directory. The template auto-applies the `tool-request` label so the planning workflow triggers automatically.
 
 ### 5. Add workflow files
 
