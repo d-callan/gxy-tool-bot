@@ -14,7 +14,6 @@ from gxy_tool_bot.config import load_config
 from gxy_tool_bot.generator import GeneratedTool, ValidationResult, generate_tool
 from gxy_tool_bot.github_client import GitHubClient
 from gxy_tool_bot.planner import PLAN_MARKER, find_plan_comment, generate_plan, parse_issue_body
-from gxy_tool_bot.site import generate_site
 
 logger = logging.getLogger(__name__)
 
@@ -145,17 +144,6 @@ def generate(issue: int, config_path: str, output_dir: str) -> None:
         gh.add_comment(issue, summary)
 
     click.echo(f"Generated {len(generated.files)} files in {output_dir}")
-
-
-@cli.command(name="generate-site")
-@click.option("--config", "config_path", type=click.Path(exists=True), default=".gxy-tool-bot.yml")
-@click.option("--output", "output_dir", type=click.Path(), default="site-output/")
-def generate_site_cmd(config_path: str, output_dir: str) -> None:
-    """Generate the static HTML request form."""
-    config = load_config(Path(config_path))
-
-    generate_site(config.site, Path(output_dir))
-    click.echo(f"Site generated in {output_dir}")
 
 
 if __name__ == "__main__":
