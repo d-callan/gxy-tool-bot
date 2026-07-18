@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
@@ -29,6 +30,7 @@ class GeneratedFile:
 class GeneratedTool:
     files: list[GeneratedFile]
     summary: str
+    tool_dir: str | None = None
 
 
 @dataclass
@@ -43,6 +45,18 @@ class FileWriter:
     def __init__(self, output_dir: Path):
         self.output_dir = output_dir
         self.files: dict[str, bytes] = {}
+        self.tool_dir: str | None = None
+
+    def set_tool_dir(self, args: dict) -> str:
+        name = args.get("name", "")
+        if not name:
+            return "Error: name is required"
+        cleaned = re.sub(r'[^a-z0-9_-]+', '_', name.lower()).strip('_')
+        if not cleaned:
+            return f"Error: '{name}' is not a valid directory name"
+        self.tool_dir = cleaned
+        logger.info("set_tool_dir: %s", cleaned)
+        return f"Tool directory set to: {cleaned}"
 
     def write_file(self, args: dict) -> str:
         path = args.get("path", "")
@@ -87,6 +101,23 @@ class FileWriter:
 def _build_tool_definitions(file_writer: FileWriter) -> list[ToolDefinition]:
     """Build tool function definitions for the generator agent."""
     return [
+        ToolDefinition(
+            name="set_tool_dir",
+            description=(
+                "Set the directory name for this tool or tool family. "
+                "For a single tool, use the tool name (e.g. 'sdust'). "
+                "For a tool family, use the family name (e.g. 'hyphy' for meme/busted/fel). "
+                "Call this once before writing files."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Directory name (lowercase, no spaces)"},
+                },
+                "required": ["name"],
+            },
+            handler=file_writer.set_tool_dir,
+        ),
         ToolDefinition(
             name="write_file",
             description="Write a file to the output directory. Path must be relative (no path traversal). Content is the file text.",
@@ -354,6 +385,7 @@ def generate_tool(
     generated = GeneratedTool(
         files=files,
         summary=result.content if result.terminated_naturally else f"⚠️ Incomplete: {result.content}",
+        tool_dir=file_writer.tool_dir,
     )
 
     return generated, result, validation

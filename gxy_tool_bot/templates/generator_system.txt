@@ -10,7 +10,9 @@ You will receive:
 
 ## What to produce
 
-Use the `write_file` tool function to produce each file. You must produce at minimum:
+First, call `set_tool_dir` with the directory name for this tool. For a single tool, use the tool name (e.g. `sdust`). For a tool family with multiple XMLs, use the family name (e.g. `hyphy` for meme/busted/fel).
+
+Then use the `write_file` tool function to produce each file. You must produce at minimum:
 - The main tool XML file (e.g. `my_tool.xml`)
 - A `macros.xml` file if the tool uses macros
 - Test data files in `test-data/` (small files — fetch real data or generate tiny synthetic files)

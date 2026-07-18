@@ -140,14 +140,17 @@ def generate(issue: int, config_path: str, output_dir: str) -> None:
             gh.add_label(issue, config.labels.generation_failed)
             sys.exit(2)
 
-        # Derive tool dir name from the generated XML filename (excluding macros.xml)
-        tool_dir = "unknown"
-        for f in generated.files:
-            if f.path.endswith(".xml") and "macros" not in f.path.lower():
-                tool_dir = Path(f.path).stem
-                break
-        if tool_dir == "unknown":
-            tool_dir = re.sub(r'[^a-z0-9]+', '_', request.tool_name.lower()).strip('_') or "unknown"
+        # Derive tool dir name: prefer agent's explicit choice, then XML filename, then issue body
+        if generated.tool_dir:
+            tool_dir = generated.tool_dir
+        else:
+            tool_dir = "unknown"
+            for f in generated.files:
+                if f.path.endswith(".xml") and "macros" not in f.path.lower():
+                    tool_dir = Path(f.path).stem
+                    break
+            if tool_dir == "unknown":
+                tool_dir = re.sub(r'[^a-z0-9]+', '_', request.tool_name.lower()).strip('_') or "unknown"
         (Path(output_dir) / ".tool-name").write_text(tool_dir)
 
         if not validation.valid:
