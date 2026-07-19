@@ -357,7 +357,7 @@ def generate_plan(
 
     # Run agent loop
     tools = _build_tool_definitions()
-    with ApiClient(config.api.base_url, api_key, config.api.model) as client:
+    with ApiClient(config.api.base_url, api_key, config.api.model, read_timeout=config.api.read_timeout) as client:
         result = run_agent_loop(
             client=client,
             system_prompt=system_prompt,

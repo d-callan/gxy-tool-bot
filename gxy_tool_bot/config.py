@@ -18,6 +18,7 @@ class ApiConfig:
     max_context_chars: int = 100_000
     max_validation_retries: int = 3
     api_key_env: str = "GXY_TOOL_BOT_API_KEY"
+    read_timeout: float = 300.0
 
 
 @dataclass
@@ -65,6 +66,7 @@ def load_config(path: Path) -> BotConfig:
         max_context_chars=api_raw.get("max_context_chars", 100_000),
         max_validation_retries=api_raw.get("max_validation_retries", 3),
         api_key_env=api_raw.get("api_key_env", "GXY_TOOL_BOT_API_KEY"),
+        read_timeout=float(api_raw.get("read_timeout", 300.0)),
     )
 
     exemplars_raw = raw.get("exemplars", [])
