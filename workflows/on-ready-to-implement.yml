@@ -21,6 +21,7 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install git+https://github.com/d-callan/gxy-tool-bot.git
+      - run: pip install planemo
       - name: Remove retry-generate and generation-failed labels
         if: github.event.label.name == 'retry-generate'
         env:
@@ -41,6 +42,11 @@ jobs:
             --config .gxy-tool-bot.yml \
             --output generated/ \
             --actor ${{ github.event.sender.login }}
+      - name: Format generated XML with planemo
+        id: format
+        if: steps.generate.outcome == 'success'
+        run: |
+          find generated/ -name "*.xml" -exec planemo format {} \;
       - name: Create branch and PR
         id: create_pr
         if: steps.generate.outcome == 'success'
