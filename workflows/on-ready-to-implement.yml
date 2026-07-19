@@ -60,7 +60,7 @@ jobs:
           git fetch origin main
           git checkout -b "$BRANCH" origin/main
           mkdir -p "tools/$TOOL_DIR"
-          cp -r generated/* "tools/$TOOL_DIR/"
+          cp -r generated/. "tools/$TOOL_DIR/"
           rm -rf generated/
           find "tools/$TOOL_DIR" -type f -exec git add {} +
           git commit -m "Generate tool for issue #${{ github.event.issue.number }}
