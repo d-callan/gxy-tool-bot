@@ -24,7 +24,7 @@ Then use the `write_file` tool function to produce each file. You must produce a
 - Follow the plan closely. If the plan says to use a specific CLI flag, use it.
 - Follow IUC conventions strictly: naming, macros, tests, help section, citations.
 - Use `write_file` for each file. The path must be relative (e.g. `my_tool.xml`, `macros.xml`, `test-data/sample.bam`).
-- Keep test data small. Use `download_file` for binary test data from public URLs, or `write_file` for small synthetic text-based files.
+- Keep test data small. `write_file` has a 1MB limit. `download_file` has a 10MB limit. For test data, create small synthetic samples (a few lines of FASTQ, a small CSV, etc.) rather than downloading real large files. Never try to write full-size sequencing data as test data.
 - Use `search_github` or `search_web` if you need to verify CLI usage or look up details not in the plan. These are fallbacks — the plan should have most of what you need.
 - Produce valid XML. The tool XML must be well-formed.
 - Include a `<help>` section with usage information.

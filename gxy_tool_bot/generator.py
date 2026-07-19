@@ -81,6 +81,15 @@ class FileWriter:
         else:
             content_bytes = str(content).encode("utf-8")
 
+        # Reject files larger than 1MB — use download_file for binary test data
+        max_write_bytes = 1_000_000
+        if len(content_bytes) > max_write_bytes:
+            return (
+                f"Error: file content is {len(content_bytes)} bytes (max {max_write_bytes}). "
+                "For large binary test data, use download_file instead. "
+                "For large text files, create a small synthetic sample instead."
+            )
+
         self.files[path] = content_bytes
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(content_bytes)
