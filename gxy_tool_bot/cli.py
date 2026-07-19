@@ -164,10 +164,10 @@ def generate(issue: int, config_path: str, output_dir: str, actor: str | None) -
             sys.exit(3)
 
         # Post summary comment
-        summary = f"✅ Tool generated successfully!\n\n{generated.summary}\n\n"
-        summary += f"Files generated ({len(generated.files)}):\n"
+        summary = f"📦 Tool files generated ({len(generated.files)}):\n\n"
         for f in generated.files:
             summary += f"- `{f.path}` ({len(f.content)} bytes)\n"
+        summary += f"\n{generated.summary}\n"
         if result.tool_call_trace:
             summary += f"\n{_format_trace_block(result)}"
         gh.add_comment(issue, summary)
