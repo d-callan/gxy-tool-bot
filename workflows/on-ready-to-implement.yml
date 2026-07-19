@@ -35,7 +35,7 @@ jobs:
             --issue ${{ github.event.issue.number }} \
             --config .gxy-tool-bot.yml \
             --output generated/ \
-            --actor ${{ github.event.actor }}
+            --actor ${{ github.event.sender.login }}
       - name: Create branch and PR
         if: steps.generate.outcome == 'success'
         env:
