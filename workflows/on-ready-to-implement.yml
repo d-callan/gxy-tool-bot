@@ -72,6 +72,7 @@ jobs:
           mkdir -p "tools/$TOOL_DIR"
           cp -r generated/. "tools/$TOOL_DIR/"
           rm -rf generated/
+          rm -f "tools/$TOOL_DIR/.tool-name"
           find "tools/$TOOL_DIR" -type f -exec git add {} +
           git commit -m "Generate tool for issue #${{ github.event.issue.number }}
 
