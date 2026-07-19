@@ -60,20 +60,27 @@ class ApiClient:
 
         logger.debug("Sending chat request: model=%s, messages=%d", self.model, len(messages))
 
-        resp = self._client.post(
-            f"{self.base_url}/chat/completions",
-            json=payload,
-            headers={"Authorization": f"Bearer {self.api_key}"},
-        )
-        resp.raise_for_status()
+        max_retries = 2
+        for attempt in range(max_retries):
+            resp = self._client.post(
+                f"{self.base_url}/chat/completions",
+                json=payload,
+                headers={"Authorization": f"Bearer {self.api_key}"},
+            )
+            resp.raise_for_status()
 
-        try:
-            data = resp.json()
-        except json.JSONDecodeError:
-            logger.error("API returned non-JSON response (status %d, %d bytes): %s",
-                         resp.status_code, len(resp.content),
-                         resp.text[:500])
-            raise RuntimeError(f"API returned non-JSON response (status {resp.status_code}). First 500 chars: {resp.text[:500]}")
+            try:
+                data = resp.json()
+                break
+            except json.JSONDecodeError:
+                logger.warning("API returned non-JSON response (attempt %d/%d, status %d, %d bytes)",
+                               attempt + 1, max_retries, resp.status_code, len(resp.content))
+                if attempt < max_retries - 1:
+                    import time
+                    time.sleep(5)
+                    continue
+                logger.error("API returned non-JSON response after %d attempts: %s", max_retries, resp.text[:500])
+                raise RuntimeError(f"API returned non-JSON response (status {resp.status_code}). First 500 chars: {resp.text[:500]}")
 
         choice = data["choices"][0]
         msg = choice["message"]
