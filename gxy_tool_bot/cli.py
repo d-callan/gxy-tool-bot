@@ -58,9 +58,9 @@ def cli(ctx: click.Context, verbose: bool, quiet: bool) -> None:
 def plan(issue: int, config_path: str) -> None:
     """Generate a tool plan from a GitHub issue."""
     config = load_config(Path(config_path))
-    api_key = os.environ.get("GXY_TOOL_BOT_API_KEY")
+    api_key = os.environ.get(config.api.api_key_env)
     if not api_key:
-        click.echo("Error: GXY_TOOL_BOT_API_KEY environment variable not set", err=True)
+        click.echo(f"Error: {config.api.api_key_env} environment variable not set", err=True)
         sys.exit(1)
 
     gh_token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
@@ -102,9 +102,9 @@ def plan(issue: int, config_path: str) -> None:
 def generate(issue: int, config_path: str, output_dir: str, actor: str | None) -> None:
     """Generate tool files from a plan in a GitHub issue."""
     config = load_config(Path(config_path))
-    api_key = os.environ.get("GXY_TOOL_BOT_API_KEY")
+    api_key = os.environ.get(config.api.api_key_env)
     if not api_key:
-        click.echo("Error: GXY_TOOL_BOT_API_KEY environment variable not set", err=True)
+        click.echo(f"Error: {config.api.api_key_env} environment variable not set", err=True)
         sys.exit(1)
 
     gh_token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
