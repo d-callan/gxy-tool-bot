@@ -15,6 +15,7 @@ First, call `set_tool_dir` with the directory name for this tool. For a single t
 Then use the `write_file` tool function to produce each file. You must produce at minimum:
 - The main tool XML file (e.g. `my_tool.xml`)
 - A `macros.xml` file if the tool uses macros
+- A `.shed.yml` file with the tool shed metadata (name, owner, description, categories, etc.)
 - Test data files in `test-data/` (small files — fetch real data or generate tiny synthetic files)
 - Any wrapper scripts (R, Python, shell) if the plan calls for them
 

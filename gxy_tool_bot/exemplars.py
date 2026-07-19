@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 class Exemplar:
     tool_xml: str
     macros_xml: str | None
+    shed_yml: str | None
     name: str
 
 
@@ -62,6 +63,22 @@ def fetch_exemplars(config: list[ExemplarConfig], max_chars: int = 15000) -> lis
             if macros_xml and len(macros_xml) >= max_chars:
                 macros_xml = macros_xml[:max_chars] + "\n<!-- ... truncated ... -->"
 
-        exemplars.append(Exemplar(tool_xml=tool_xml, macros_xml=macros_xml, name=name))
+        shed_yml = None
+        if ec.shed_yml:
+            shed_cache = cache_dir / f"{name}_shed.yml"
+            if shed_cache.exists():
+                shed_yml = shed_cache.read_text()
+            else:
+                try:
+                    shed_yml = fetch_url(ec.shed_yml, max_bytes=max_chars)
+                    shed_cache.write_text(shed_yml)
+                except Exception as e:
+                    logger.warning("Failed to fetch .shed.yml %s: %s", ec.shed_yml, e)
+                    shed_yml = None
+
+            if shed_yml and len(shed_yml) >= max_chars:
+                shed_yml = shed_yml[:max_chars] + "\n# ... truncated ..."
+
+        exemplars.append(Exemplar(tool_xml=tool_xml, macros_xml=macros_xml, shed_yml=shed_yml, name=name))
 
     return exemplars

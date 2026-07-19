@@ -23,6 +23,7 @@ class ApiConfig:
 class ExemplarConfig:
     url: str
     macros: str | None = None
+    shed_yml: str | None = None
 
 
 @dataclass
@@ -68,7 +69,7 @@ def load_config(path: Path) -> BotConfig:
     if not exemplars_raw:
         raise ValueError("Config must define at least one exemplar")
     exemplars = [
-        ExemplarConfig(url=e["url"], macros=e.get("macros"))
+        ExemplarConfig(url=e["url"], macros=e.get("macros"), shed_yml=e.get("shed_yml"))
         for e in exemplars_raw
     ]
 

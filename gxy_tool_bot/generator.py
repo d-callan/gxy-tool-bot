@@ -214,6 +214,8 @@ def _build_exemplar_text(exemplars: list) -> str:
         parts.append(f"### Exemplar: {ex.name}\n```xml\n{ex.tool_xml}\n```")
         if ex.macros_xml:
             parts.append(f"### Macros: {ex.name}\n```xml\n{ex.macros_xml}\n```")
+        if ex.shed_yml:
+            parts.append(f"### .shed.yml: {ex.name}\n```yaml\n{ex.shed_yml}\n```")
     return "\n\n".join(parts)
 
 
