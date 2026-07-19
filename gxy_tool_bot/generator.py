@@ -374,15 +374,56 @@ def generate_tool(
                 "Please fix these errors by rewriting the affected files with write_file."
             )
 
-            result = run_agent_loop(
-                client=client,
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                tools=tools,
-                max_iterations=config.api.max_tool_iterations,
-                temperature=config.api.temperature_generate,
-                messages=result.messages + [{"role": "user", "content": error_msg}],
-            )
+            # If no files were generated at all, the agent wasted all iterations
+            # researching. Keep the conversation history but add a strong nudge
+            # to start writing. On the last retry, start fresh to avoid a
+            # bloated context that keeps triggering research.
+            if not files:
+                nudge_msg = (
+                    "No files were generated in the previous attempt. The agent spent all iterations"
+                    " on research instead of writing files.\n\n"
+                    "You MUST start writing files immediately. Call `set_tool_dir` first, then call"
+                    " `write_file` to create the tool XML. Do NOT call search_github, search_web, or"
+                    " fetch_url until you have written at least the tool XML and macros.xml.\n\n"
+                    "The plan contains everything you need. Start writing now."
+                )
+                if retry < max_validation_retries - 1:
+                    # Keep history — the research may still be useful
+                    result = run_agent_loop(
+                        client=client,
+                        system_prompt=system_prompt,
+                        user_prompt=user_prompt,
+                        tools=tools,
+                        max_iterations=config.api.max_tool_iterations,
+                        temperature=config.api.temperature_generate,
+                        messages=result.messages + [{"role": "user", "content": nudge_msg}],
+                    )
+                else:
+                    # Last retry — start fresh to escape the research loop
+                    logger.info("Starting fresh agent loop (no files after %d retries)", retry + 1)
+                    result = run_agent_loop(
+                        client=client,
+                        system_prompt=system_prompt,
+                        user_prompt=user_prompt,
+                        tools=tools,
+                        max_iterations=config.api.max_tool_iterations,
+                        temperature=config.api.temperature_generate,
+                        messages=[
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_prompt},
+                            {"role": "user", "content": nudge_msg},
+                        ],
+                    )
+            else:
+                result = run_agent_loop(
+                    client=client,
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    tools=tools,
+                    max_iterations=config.api.max_tool_iterations,
+                    temperature=config.api.temperature_generate,
+                    messages=result.messages + [{"role": "user", "content": error_msg}],
+                )
 
             files = [
                 GeneratedFile(path=p, content=c)
