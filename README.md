@@ -71,7 +71,7 @@ Create these seven labels in the repo (Settings → Labels):
 
 ### 4. Add the issue template
 
-Copy `.github/ISSUE_TEMPLATE/tool-request.yml` from this repo into your repo's `.github/ISSUE_TEMPLATE/` directory. The template auto-applies the `tool-request` label so the planning workflow triggers automatically.
+Copy `examples/issue-template-tool-request.yml` from this repo into your repo's `.github/ISSUE_TEMPLATE/tool-request.yml`. The template auto-applies the `tool-request` label so the planning workflow triggers automatically.
 
 ### 5. Add workflow files
 
