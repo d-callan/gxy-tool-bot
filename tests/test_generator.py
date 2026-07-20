@@ -103,6 +103,52 @@ def test_validation_defined_macro_ok() -> None:
     assert result.valid is True
 
 
+def test_validation_html_in_help_fails() -> None:
+    """Help section with HTML tags should fail validation."""
+    xml = b"""<?xml version="1.0"?>
+<tool id="test" name="Test" version="1.0.0">
+    <command>test --input $input</command>
+    <inputs>
+        <param name="input" type="data" format="fasta"/>
+    </inputs>
+    <outputs>
+        <data name="output" format="fasta"/>
+    </outputs>
+    <help><p>This is <strong>HTML</strong> help.</p></help>
+</tool>"""
+    files = [GeneratedFile(path="test.xml", content=xml)]
+    result = validate_generated_files(files)
+    assert result.valid is False
+    assert any("HTML" in e for e in result.errors)
+
+
+def test_validation_markdown_in_help_ok() -> None:
+    """Help section with Markdown (no HTML tags) should pass validation."""
+    xml = b"""<?xml version="1.0"?>
+<tool id="test" name="Test" version="1.0.0">
+    <command>test --input $input</command>
+    <inputs>
+        <param name="input" type="data" format="fasta"/>
+    </inputs>
+    <outputs>
+        <data name="output" format="fasta"/>
+    </outputs>
+    <help>
+
+## Overview
+
+This tool does **important** things.
+
+- Item one
+- Item two
+
+    </help>
+</tool>"""
+    files = [GeneratedFile(path="test.xml", content=xml)]
+    result = validate_generated_files(files)
+    assert result.valid is True
+
+
 def test_validation_xml_macro_definition_ok() -> None:
     """IUC macros.xml uses <xml name="..."> elements, not <macro name="...">."""
     tool_xml = b"""<?xml version="1.0"?>

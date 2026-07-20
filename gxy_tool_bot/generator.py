@@ -291,12 +291,34 @@ def validate_generated_files(files: list[GeneratedFile]) -> ValidationResult:
         text = root.tag
         # Search for macro imports and token usage
         raw = ET.tostring(root, encoding="unicode")
-        import re
         # Check <expand> macro references
         for match in re.finditer(r'<expand\s+macro="([^"]+)"', raw):
             token_name = match.group(1)
             if token_name not in macro_tokens:
                 errors.append(f"Macro/token '{token_name}' referenced in {path} but not defined in any macros.xml")
+
+    # Check that <help> sections use Markdown, not HTML
+    # Galaxy renders help as reStructuredText/Markdown — HTML tags like <p>, <br>, <div>
+    # inside <help> indicate the agent used HTML instead of Markdown.
+    # When ElementTree parses the tool XML, HTML tags inside <help> become child
+    # elements, so we check both the tag names of children and the serialized content.
+    html_tag_names = {"p", "br", "div", "span", "ul", "ol", "li", "table", "tr", "td", "th", "strong", "em", "b", "i"}
+    html_tag_re = re.compile(r'<(?:p|br|div|span|h[1-6]|ul|ol|li|table|tr|td|th|a\s|strong|em|b>|i>)\b', re.IGNORECASE)
+    for path, root in xml_contents.items():
+        if "macros.xml" in path:
+            continue
+        help_elem = root.find(".//help")
+        if help_elem is not None:
+            # Check for HTML child elements
+            has_html_children = any(child.tag.lower() in html_tag_names for child in help_elem.iter() if child is not help_elem)
+            # Also check serialized content for HTML tags in text/CDATA
+            help_serialized = ET.tostring(help_elem, encoding="unicode")
+            if has_html_children or html_tag_re.search(help_serialized):
+                errors.append(
+                    f"<help> section in {path} contains HTML tags — "
+                    "Galaxy help sections must use Markdown, not HTML. "
+                    "Replace HTML tags with Markdown syntax (e.g. **bold**, - bullet, # heading)."
+                )
 
     return ValidationResult(valid=len(errors) == 0, errors=errors)
 
