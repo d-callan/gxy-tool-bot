@@ -301,6 +301,115 @@ def validate_generated_files(files: list[GeneratedFile]) -> ValidationResult:
     return ValidationResult(valid=len(errors) == 0, errors=errors)
 
 
+def _run_agent_with_validation(
+    client: ApiClient,
+    system_prompt: str,
+    user_prompt: str,
+    tools: list[ToolDefinition],
+    file_writer: FileWriter,
+    config: BotConfig,
+    no_files_nudge: str | None = None,
+) -> tuple[AgentResult, list[GeneratedFile], ValidationResult]:
+    """
+    Run the agent loop with validation retries. Shared by generate_tool and address_feedback.
+
+    - Runs the agent, collects files from file_writer, validates them.
+    - On validation failure, feeds errors back to the agent and retries up to max_validation_retries.
+    - If no files were generated and no_files_nudge is provided, uses it to nudge the agent.
+    - Returns (final AgentResult, files, ValidationResult).
+    """
+    temperature = config.api.temperature_generate
+    max_iterations = config.api.max_tool_iterations
+    max_validation_retries = config.api.max_validation_retries
+
+    result = run_agent_loop(
+        client=client,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        tools=tools,
+        max_iterations=max_iterations,
+        temperature=temperature,
+    )
+
+    files = [
+        GeneratedFile(path=p, content=c)
+        for p, c in sorted(file_writer.files.items())
+    ]
+    validation = validate_generated_files(files)
+
+    for retry in range(max_validation_retries):
+        if validation.valid:
+            break
+
+        logger.warning(
+            "Validation errors (attempt %d/%d): %s",
+            retry + 1, max_validation_retries, validation.errors,
+        )
+
+        error_msg = (
+            "The following validation errors were found in the generated files:\n\n"
+            + "\n".join(f"- {e}" for e in validation.errors)
+            + "\n\nTo fix macro/token errors: add the missing <xml name=\"NAME\"> or <token name=\"NAME\">"
+            " definitions to macros.xml. Every <expand macro=\"NAME\"> in the tool XML must have a"
+            " matching definition in macros.xml.\n\n"
+            "To fix test data errors: write the missing test data files with write_file.\n\n"
+            "To fix XML parse errors: rewrite the file with valid XML.\n\n"
+            "Please fix these errors by rewriting the affected files with write_file."
+        )
+
+        # If no files were generated at all, the agent wasted all iterations
+        # researching. Keep the conversation history but add a strong nudge
+        # to start writing. On the last retry, start fresh to avoid a
+        # bloated context that keeps triggering research.
+        if not files and no_files_nudge:
+            if retry < max_validation_retries - 1:
+                result = run_agent_loop(
+                    client=client,
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    tools=tools,
+                    max_iterations=max_iterations,
+                    temperature=temperature,
+                    messages=result.messages + [{"role": "user", "content": no_files_nudge}],
+                )
+            else:
+                logger.info("Starting fresh agent loop (no files after %d retries)", retry + 1)
+                result = run_agent_loop(
+                    client=client,
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    tools=tools,
+                    max_iterations=max_iterations,
+                    temperature=temperature,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                        {"role": "user", "content": no_files_nudge},
+                    ],
+                )
+        else:
+            result = run_agent_loop(
+                client=client,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                tools=tools,
+                max_iterations=max_iterations,
+                temperature=temperature,
+                messages=result.messages + [{"role": "user", "content": error_msg}],
+            )
+
+        files = [
+            GeneratedFile(path=p, content=c)
+            for p, c in sorted(file_writer.files.items())
+        ]
+        validation = validate_generated_files(files)
+
+    if not validation.valid:
+        logger.warning("Validation errors after %d retries: %s", max_validation_retries, validation.errors)
+
+    return result, files, validation
+
+
 def generate_tool(
     plan_markdown: str,
     config: BotConfig,
@@ -332,107 +441,25 @@ def generate_tool(
     file_writer = FileWriter(output_dir)
     tools = _build_tool_definitions(file_writer)
 
-    # Run agent loop
+    no_files_nudge = (
+        "No files were generated in the previous attempt. The agent spent all iterations"
+        " on research instead of writing files.\n\n"
+        "You MUST start writing files immediately. Call `set_tool_dir` first, then call"
+        " `write_file` to create the tool XML. Do NOT call search_github, search_web, or"
+        " fetch_url until you have written at least the tool XML and macros.xml.\n\n"
+        "The plan contains everything you need. Start writing now."
+    )
+
     with ApiClient(config.api.base_url, api_key, config.api.model, read_timeout=config.api.read_timeout) as client:
-        result = run_agent_loop(
+        result, files, validation = _run_agent_with_validation(
             client=client,
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             tools=tools,
-            max_iterations=config.api.max_tool_iterations,
-            temperature=config.api.temperature_generate,
+            file_writer=file_writer,
+            config=config,
+            no_files_nudge=no_files_nudge,
         )
-
-        # Collect generated files
-        files = [
-            GeneratedFile(path=p, content=c)
-            for p, c in sorted(file_writer.files.items())
-        ]
-
-        # Validate
-        validation = validate_generated_files(files)
-
-        # Validation retry loop: feed errors back to the agent so it can fix them
-        max_validation_retries = config.api.max_validation_retries
-        for retry in range(max_validation_retries):
-            if validation.valid:
-                break
-
-            logger.warning(
-                "Validation errors (attempt %d/%d): %s",
-                retry + 1, max_validation_retries, validation.errors,
-            )
-
-            error_msg = (
-                "The following validation errors were found in the generated files:\n\n"
-                + "\n".join(f"- {e}" for e in validation.errors)
-                + "\n\nTo fix macro/token errors: add the missing <xml name=\"NAME\"> or <token name=\"NAME\">"
-                " definitions to macros.xml. Every <expand macro=\"NAME\"> in the tool XML must have a"
-                " matching definition in macros.xml.\n\n"
-                "To fix test data errors: write the missing test data files with write_file.\n\n"
-                "To fix XML parse errors: rewrite the file with valid XML.\n\n"
-                "Please fix these errors by rewriting the affected files with write_file."
-            )
-
-            # If no files were generated at all, the agent wasted all iterations
-            # researching. Keep the conversation history but add a strong nudge
-            # to start writing. On the last retry, start fresh to avoid a
-            # bloated context that keeps triggering research.
-            if not files:
-                nudge_msg = (
-                    "No files were generated in the previous attempt. The agent spent all iterations"
-                    " on research instead of writing files.\n\n"
-                    "You MUST start writing files immediately. Call `set_tool_dir` first, then call"
-                    " `write_file` to create the tool XML. Do NOT call search_github, search_web, or"
-                    " fetch_url until you have written at least the tool XML and macros.xml.\n\n"
-                    "The plan contains everything you need. Start writing now."
-                )
-                if retry < max_validation_retries - 1:
-                    # Keep history — the research may still be useful
-                    result = run_agent_loop(
-                        client=client,
-                        system_prompt=system_prompt,
-                        user_prompt=user_prompt,
-                        tools=tools,
-                        max_iterations=config.api.max_tool_iterations,
-                        temperature=config.api.temperature_generate,
-                        messages=result.messages + [{"role": "user", "content": nudge_msg}],
-                    )
-                else:
-                    # Last retry — start fresh to escape the research loop
-                    logger.info("Starting fresh agent loop (no files after %d retries)", retry + 1)
-                    result = run_agent_loop(
-                        client=client,
-                        system_prompt=system_prompt,
-                        user_prompt=user_prompt,
-                        tools=tools,
-                        max_iterations=config.api.max_tool_iterations,
-                        temperature=config.api.temperature_generate,
-                        messages=[
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": user_prompt},
-                            {"role": "user", "content": nudge_msg},
-                        ],
-                    )
-            else:
-                result = run_agent_loop(
-                    client=client,
-                    system_prompt=system_prompt,
-                    user_prompt=user_prompt,
-                    tools=tools,
-                    max_iterations=config.api.max_tool_iterations,
-                    temperature=config.api.temperature_generate,
-                    messages=result.messages + [{"role": "user", "content": error_msg}],
-                )
-
-            files = [
-                GeneratedFile(path=p, content=c)
-                for p, c in sorted(file_writer.files.items())
-            ]
-            validation = validate_generated_files(files)
-
-        if not validation.valid:
-            logger.warning("Validation errors after %d retries: %s", max_validation_retries, validation.errors)
 
     generated = GeneratedTool(
         files=files,

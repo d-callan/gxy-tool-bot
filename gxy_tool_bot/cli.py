@@ -15,6 +15,7 @@ from gxy_tool_bot.config import load_config
 from gxy_tool_bot.generator import GeneratedTool, ValidationResult, generate_tool
 from gxy_tool_bot.github_client import GitHubClient
 from gxy_tool_bot.planner import PLAN_MARKER, find_plan_comment, generate_plan, parse_issue_body
+from gxy_tool_bot.address_feedback import address_feedback
 
 logger = logging.getLogger(__name__)
 
@@ -173,6 +174,67 @@ def generate(issue: int, config_path: str, output_dir: str, actor: str | None) -
         gh.add_comment(issue, summary)
 
     click.echo(f"Generated {len(generated.files)} files in {output_dir}")
+
+
+@cli.command(name="address-feedback")
+@click.option("--pr", "pr_number", type=int, required=True, help="GitHub PR number")
+@click.option("--config", "config_path", type=click.Path(exists=True), default=".gxy-tool-bot.yml")
+@click.option("--tool-dir", "tool_dir", type=click.Path(), required=True, help="Path to the existing tool directory in the PR branch")
+@click.option("--actor", default=None, help="GitHub user who triggered the action (for maintainer check)")
+def address_feedback_cmd(pr_number: int, config_path: str, tool_dir: str, actor: str | None) -> None:
+    """Address feedback on an existing PR by fixing tool files."""
+    config = load_config(Path(config_path))
+    api_key = os.environ.get(config.api.api_key_env)
+    if not api_key:
+        click.echo(f"Error: {config.api.api_key_env} environment variable not set", err=True)
+        sys.exit(1)
+
+    gh_token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    if not gh_token:
+        click.echo("Error: GH_TOKEN environment variable not set", err=True)
+        sys.exit(1)
+
+    # Check allowed_maintainers if configured
+    if config.allowed_maintainers:
+        if not actor or actor not in config.allowed_maintainers:
+            who = actor or "unknown"
+            click.echo(f"Error: user '{who}' is not in allowed_maintainers list", err=True)
+            with GitHubClient(gh_token, config.repo) as gh:
+                gh.add_comment(pr_number, f"⚠️ Feedback addressing blocked: user '{who}' is not in the allowed maintainers list.")
+            sys.exit(1)
+
+    with GitHubClient(gh_token, config.repo) as gh:
+        logger.info("Addressing feedback on PR #%d", pr_number)
+        try:
+            generated, result, validation = address_feedback(
+                pr_number=pr_number,
+                config=config,
+                api_key=api_key,
+                tool_dir=Path(tool_dir),
+                gh=gh,
+            )
+        except Exception as exc:
+            logger.exception("Addressing feedback failed")
+            gh.add_comment(pr_number, f"⚠️ Failed to address feedback: {exc}")
+            sys.exit(2)
+
+        if not validation.valid:
+            error_msg = "⚠️ Feedback addressed but validation found errors:\n\n"
+            for err in validation.errors:
+                error_msg += f"- {err}\n"
+            gh.add_comment(pr_number, error_msg)
+            click.echo(f"Validation failed: {len(validation.errors)} errors", err=True)
+            sys.exit(3)
+
+        # Post summary comment
+        changed = [f for f in generated.files]
+        summary = f"🔧 Addressed feedback — {len(changed)} files in tool directory\n\n"
+        summary += generated.summary
+        if result.tool_call_trace:
+            summary += f"\n\n{_format_trace_block(result)}"
+        gh.add_comment(pr_number, summary)
+
+    click.echo(f"Addressed feedback on PR #{pr_number}")
 
 
 if __name__ == "__main__":

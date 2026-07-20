@@ -57,7 +57,7 @@ allowed_maintainers:
 
 ### 3. Create GitHub labels
 
-Create these seven labels in the repo (Settings → Labels):
+Create these labels in the repo (Settings → Labels):
 
 | Label | Color | Purpose |
 |-------|-------|---------|
@@ -68,6 +68,7 @@ Create these seven labels in the repo (Settings → Labels):
 | `generation-failed` | `#b60205` | Applied by bot if generation or planning fails |
 | `retry-plan` | `#fbca04` | Applied by user/maintainer to re-trigger planning after a failure |
 | `retry-generate` | `#fbca04` | Applied by user/maintainer to re-trigger generation after a failure |
+| `address-feedback` | `#5319e7` | Applied to a PR to have the bot address review comments and CI failures |
 
 ### 4. Add the issue template
 
@@ -75,10 +76,11 @@ Copy `examples/issue-template-tool-request.yml` from this repo into your repo's 
 
 ### 5. Add workflow files
 
-Copy the two workflow templates from the [`workflows/`](workflows/) directory in this repo into your repo's `.github/workflows/`:
+Copy the workflow templates from the [`workflows/`](workflows/) directory in this repo into your repo's `.github/workflows/`:
 
 - **`on-tool-request.yml`** → `.github/workflows/gxy-on-tool-request.yml` — triggers on new issues with `tool-request` label or when `retry-plan` label is added; runs the planner
 - **`on-ready-to-implement.yml`** → `.github/workflows/gxy-on-ready-to-implement.yml` — triggers when `ready-to-implement` or `retry-generate` label is added; runs the generator and opens a PR
+- **`on-pr-feedback.yml`** → `.github/workflows/gxy-on-pr-feedback.yml` — triggers when `address-feedback` label is added to a PR; reads review comments and CI failures, pushes fixes as new commits
 
 Both workflows install the bot from GitHub:
 

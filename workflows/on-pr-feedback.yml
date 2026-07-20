@@ -1,0 +1,80 @@
+on:
+  pull_request:
+    types: [labeled]
+
+jobs:
+  address-feedback:
+    if: github.event.label.name == 'address-feedback'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+      - name: Post status comment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr comment ${{ github.event.pull_request.number }} --body "🔧 Addressing feedback — [view progress](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install git+https://github.com/d-callan/gxy-tool-bot.git
+      - run: pip install "planemo>=0.75.43"
+      - name: Remove address-feedback label
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr edit ${{ github.event.pull_request.number }} \
+            --remove-label "address-feedback" || true
+      - name: Find tool directory
+        id: find_tool_dir
+        run: |
+          # Find the tool directory by looking for .tool-name or XML files in tools/
+          TOOL_DIR=""
+          if [ -f tools/*/.tool-name ]; then
+            TOOL_DIR=$(cat tools/*/.tool-name 2>/dev/null | head -1)
+          fi
+          if [ -z "$TOOL_DIR" ]; then
+            # Fall back: find first dir under tools/ that has an XML file
+            TOOL_DIR=$(find tools/ -maxdepth 2 -name "*.xml" -not -name "macros.xml" | head -1 | xargs dirname | xargs basename 2>/dev/null)
+          fi
+          if [ -z "$TOOL_DIR" ]; then
+            echo "Could not find tool directory"
+            exit 1
+          fi
+          echo "tool_dir=$TOOL_DIR" >> $GITHUB_OUTPUT
+          echo "Found tool directory: $TOOL_DIR"
+      - name: Address feedback
+        id: address
+        env:
+          GXY_TOOL_BOT_API_KEY: ${{ secrets.GXY_TOOL_BOT_API_KEY }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gxy-tool-bot address-feedback \
+            --pr ${{ github.event.pull_request.number }} \
+            --config .gxy-tool-bot.yml \
+            --tool-dir tools/${{ steps.find_tool_dir.outputs.tool_dir }} \
+            --actor ${{ github.event.sender.login }}
+      - name: Format updated XML with planemo
+        if: steps.address.outcome == 'success'
+        run: |
+          planemo format --recursive tools/${{ steps.find_tool_dir.outputs.tool_dir }}/
+      - name: Commit and push changes
+        if: steps.address.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "gxy-tool-bot"
+          git config user.email "gxy-tool-bot@users.noreply.github.com"
+          TOOL_DIR=${{ steps.find_tool_dir.outputs.tool_dir }}
+          rm -f "tools/$TOOL_DIR/.tool-name"
+          git add tools/$TOOL_DIR/
+          git commit -m "Address feedback on PR #${{ github.event.pull_request.number }}" || echo "No changes to commit"
+          git push
+      - name: Handle failure
+        if: steps.address.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr comment ${{ github.event.pull_request.number }} --body "⚠️ Failed to address feedback. Check the [workflow logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details."

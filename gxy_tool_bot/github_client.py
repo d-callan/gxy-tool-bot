@@ -116,6 +116,72 @@ class GitHubClient:
             return comments
         return retry(_do)
 
+    def get_pr(self, pr_number: int) -> dict:
+        """Fetch PR details including head branch and base branch."""
+        def _do() -> dict:
+            resp = self._client.get(
+                f"https://api.github.com/repos/{self.repo}/pulls/{pr_number}"
+            )
+            resp.raise_for_status()
+            return resp.json()
+        return retry(_do)
+
+    def get_pr_comments(self, pr_number: int) -> list[Comment]:
+        """Fetch all issue-level comments on a PR (not review comments)."""
+        return self.get_issue_comments(pr_number)
+
+    def get_pr_review_comments(self, pr_number: int) -> list[Comment]:
+        """Fetch review comments (inline code comments) on a PR."""
+        def _do() -> list[Comment]:
+            comments: list[Comment] = []
+            page = 1
+            while True:
+                resp = self._client.get(
+                    f"https://api.github.com/repos/{self.repo}/pulls/{pr_number}/comments",
+                    params={"per_page": 100, "page": page},
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                if not data:
+                    break
+                for c in data:
+                    comments.append(Comment(
+                        id=c["id"],
+                        body=c.get("body", ""),
+                        author=c.get("user", {}).get("login", ""),
+                    ))
+                page += 1
+            return comments
+        return retry(_do)
+
+    def get_pr_check_runs(self, pr_number: int) -> list[dict]:
+        """Fetch check run results for a PR's head SHA."""
+        def _do() -> list[dict]:
+            pr = self.get_pr(pr_number)
+            sha = pr["head"]["sha"]
+            runs: list[dict] = []
+            page = 1
+            while True:
+                resp = self._client.get(
+                    f"https://api.github.com/repos/{self.repo}/commits/{sha}/check-runs",
+                    params={"per_page": 100, "page": page},
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                check_runs = data.get("check_runs", [])
+                if not check_runs:
+                    break
+                for r in check_runs:
+                    runs.append({
+                        "name": r.get("name", ""),
+                        "status": r.get("status", ""),
+                        "conclusion": r.get("conclusion", ""),
+                        "output": r.get("output", {}).get("text", ""),
+                    })
+                page += 1
+            return runs
+        return retry(_do)
+
     def close(self) -> None:
         self._client.close()
 
