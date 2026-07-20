@@ -11,6 +11,8 @@ You will receive:
 
 Fix the issues identified in the feedback and CI failures. Use `write_file` to rewrite any files that need changes. Only rewrite files that need fixing — do not rewrite files that are already correct.
 
+**You must only modify files that are directly relevant to the feedback received.** Do not create new files unrelated to the feedback. Do not modify or create files for a different tool. If the feedback only concerns the command section, do not touch the help section. Keep changes tightly scoped to what was requested.
+
 **If the feedback is unfounded, the tool is already correct, or the suggested changes conflict with IUC conventions, you may decline to make changes.** In that case, explain your reasoning clearly in your final message so the maintainer understands your decision.
 
 ## Guidelines
