@@ -400,6 +400,62 @@ def test_validation_display_checkboxes() -> None:
     assert any("display" in e for e in result.errors)
 
 
+def test_validation_stdio_with_detect_errors() -> None:
+    """<stdio> with detect_errors=aggressive should fail (redundant)."""
+    xml = b"""<?xml version="1.0"?>
+<tool id="test" name="Test" version="@TOOL_VERSION@+galaxy0">
+    <command detect_errors="aggressive">test</command>
+    <stdio><exit_code range="1:" level="fatal"/></stdio>
+    <inputs><param name="input" type="data" format="fasta"/></inputs>
+    <outputs><data name="output" format="fasta"/></outputs>
+    <tests><test expect_num_outputs="1"><param name="input" value="s.fa"/></test></tests>
+    <help format="markdown">Help</help>
+</tool>"""
+    files = [GeneratedFile(path="test.xml", content=xml)]
+    result = validate_generated_files(files)
+    assert result.valid is False
+    assert any("stdio" in e.lower() and "redundant" in e.lower() for e in result.errors)
+
+
+def test_validation_boolean_truevalue_true() -> None:
+    """Boolean param with truevalue='true' should fail (should be CLI flag)."""
+    xml = b"""<?xml version="1.0"?>
+<tool id="test" name="Test" version="@TOOL_VERSION@+galaxy0">
+    <command detect_errors="aggressive">test --verbose $verbose</command>
+    <inputs>
+        <param name="verbose" type="boolean" truevalue="true" falsevalue="false" label="Verbose"/>
+    </inputs>
+    <outputs><data name="output" format="fasta"/></outputs>
+    <tests><test expect_num_outputs="1"><param name="input" value="s.fa"/></test></tests>
+    <help format="markdown">Help</help>
+</tool>"""
+    files = [GeneratedFile(path="test.xml", content=xml)]
+    result = validate_generated_files(files)
+    assert result.valid is False
+    assert any("truevalue" in e and "true" in e for e in result.errors)
+
+
+def test_validation_test_output_missing_ftype() -> None:
+    """Test <output> without ftype should fail."""
+    xml = b"""<?xml version="1.0"?>
+<tool id="test" name="Test" version="@TOOL_VERSION@+galaxy0">
+    <command detect_errors="aggressive">test</command>
+    <inputs><param name="input" type="data" format="fasta"/></inputs>
+    <outputs><data name="output" format="fasta"/></outputs>
+    <tests>
+        <test expect_num_outputs="1">
+            <param name="input" value="sample.fasta"/>
+            <output name="output" file="result.fasta"/>
+        </test>
+    </tests>
+    <help format="markdown">Help</help>
+</tool>"""
+    files = [GeneratedFile(path="test.xml", content=xml)]
+    result = validate_generated_files(files)
+    assert result.valid is False
+    assert any("ftype" in e for e in result.errors)
+
+
 def test_validation_all_conventions_ok() -> None:
     """A tool that follows all IUC conventions should pass."""
     xml = b"""<?xml version="1.0"?>

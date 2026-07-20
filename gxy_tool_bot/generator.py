@@ -530,6 +530,46 @@ def validate_generated_files(files: list[GeneratedFile]) -> ValidationResult:
                     "remove the display attribute; let Galaxy pick the widget."
                 )
 
+    # Check for <stdio> when detect_errors="aggressive" is present (redundant)
+    for path, root in xml_contents.items():
+        if "macros.xml" in path:
+            continue
+        command_elem = root.find(".//command")
+        if command_elem is not None and command_elem.get("detect_errors") == "aggressive":
+            stdio_elem = root.find(".//stdio")
+            if stdio_elem is not None:
+                errors.append(
+                    f"<stdio> in {path} is redundant when detect_errors=\"aggressive\" is set — "
+                    "remove the <stdio> element."
+                )
+
+    # Check for boolean params with truevalue="true" (should be the CLI flag)
+    for path, root in xml_contents.items():
+        if "macros.xml" in path:
+            continue
+        for param in root.iter("param"):
+            if param.get("type") == "boolean" and param.get("truevalue") == "true":
+                param_name = param.get("name") or param.get("argument") or "unnamed"
+                errors.append(
+                    f"<param> '{param_name}' in {path} is a boolean with truevalue=\"true\" — "
+                    "truevalue should be the CLI flag (e.g. \"--verbose\" or \"-f\"), not \"true\"."
+                )
+
+    # Check for <output> elements in <test> blocks missing ftype
+    for path, root in xml_contents.items():
+        if "macros.xml" in path:
+            continue
+        tests_elem = root.find(".//tests")
+        if tests_elem is not None:
+            for test in tests_elem.findall("test"):
+                for output in test.iter("output"):
+                    if "ftype" not in output.attrib:
+                        output_name = output.get("name", "unnamed")
+                        errors.append(
+                            f"<output> '{output_name}' in a <test> in {path} is missing ftype — "
+                            "test outputs should specify the expected file type (e.g. ftype=\"fasta\")."
+                        )
+
     return ValidationResult(valid=len(errors) == 0, errors=errors)
 
 
