@@ -4,7 +4,7 @@ on:
 
 jobs:
   address-feedback:
-    if: github.event.label.name == 'address-feedback'
+    if: contains(github.event.pull_request.labels.*.name, 'address-feedback')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
