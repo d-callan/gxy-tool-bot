@@ -35,3 +35,17 @@ Then use the `write_file` tool function to produce each file. You must produce a
 - Include at least one `<test>` case with test data.
 - If the tool needs macros, define them in `macros.xml` and import them in the tool XML.
 - **Every macro referenced via `<expand macro="NAME">` in the tool XML MUST be defined in `macros.xml`.** Common IUC macros that need definitions include: `requirements`, `version_command`, `stdio`, `citations`, `bio_tools`. Look at the exemplar macros.xml for the pattern — each is an `<xml name="NAME">` element inside `<macros>`. If you reference a macro, you must define it. Do not assume macros exist from an external source.
+- Use `detect_errors="aggressive"` on the `<command>` element.
+- Use `format="markdown"` on the `<help>` element: `<help format="markdown"><![CDATA[ ... ]]></help>`.
+- Use `argument="--flag"` instead of bare `name="flag"` for CLI parameters. The `argument=` attribute auto-generates the name and displays the flag in help text.
+- Include `expect_num_outputs` on every `<test>` element.
+- Use `@TOOL_VERSION@+galaxy@VERSION_SUFFIX@` for the tool version, not hardcoded strings.
+- Include `<xrefs><xref type="bio.tools">tool_id</xref></xrefs>` for bio.tools cross-references.
+- Tool IDs must be lowercase `[a-z0-9_-]` only (e.g. `mytool_align`, not `MyTool-Align`).
+- **Cheetah logic (`#if`, `#for`) must be in `<token>` elements, NOT `<xml>` macros.** Cheetah inside `<xml>` macros does not work correctly.
+- Do not use `optional="true"` when a `value` default is set — just use the default.
+- Do not use `display="checkboxes"` on multi-select params — let Galaxy pick the widget.
+- Follow strict XML element order: description → macros → requirements → version_command → command → inputs → outputs → tests → help → citations.
+- Use output labels like `${tool.name} on ${on_string}` for consistency.
+- When a tool accepts compressed input, include both compressed and uncompressed formats: `format="fasta,fasta.gz"`.
+- Use `<section name="..." title="...">` to group related parameters in complex tools.

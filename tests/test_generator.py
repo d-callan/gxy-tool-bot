@@ -10,8 +10,8 @@ from gxy_tool_bot.generator import GeneratedFile, ValidationResult, FileWriter, 
 
 def test_validation_valid_xml(tmp_path: Path) -> None:
     xml = b"""<?xml version="1.0"?>
-<tool id="test" name="Test" version="1.0.0">
-    <command>test --input $input --output $output</command>
+<tool id="test" name="Test" version="@TOOL_VERSION@+galaxy0">
+    <command detect_errors="aggressive">test --input $input --output $output</command>
     <inputs>
         <param name="input" type="data" format="fasta"/>
     </inputs>
@@ -19,10 +19,12 @@ def test_validation_valid_xml(tmp_path: Path) -> None:
         <data name="output" format="fasta"/>
     </outputs>
     <tests>
-        <test>
+        <test expect_num_outputs="1">
             <param name="input" value="sample.fasta"/>
         </test>
     </tests>
+    <help format="markdown">Help</help>
+    <xrefs><xref type="bio.tools">test</xref></xrefs>
 </tool>"""
     files = [
         GeneratedFile(path="test.xml", content=xml),
@@ -86,11 +88,17 @@ def test_validation_undefined_macro() -> None:
 
 def test_validation_defined_macro_ok() -> None:
     xml = b"""<?xml version="1.0"?>
-<tool id="test" name="Test" version="1.0.0">
+<tool id="test" name="Test" version="@TOOL_VERSION@+galaxy0">
     <macros>
         <import>macros.xml</import>
     </macros>
     <expand macro="defined_macro"/>
+    <command detect_errors="aggressive">test</command>
+    <inputs><param name="input" type="data" format="fasta"/></inputs>
+    <outputs><data name="output" format="fasta"/></outputs>
+    <tests><test expect_num_outputs="1"><param name="input" value="sample.fasta"/></test></tests>
+    <help format="markdown">Help</help>
+    <xrefs><xref type="bio.tools">test</xref></xrefs>
 </tool>"""
     macros = b"""<?xml version="1.0"?>
 <macros>
@@ -99,6 +107,7 @@ def test_validation_defined_macro_ok() -> None:
     files = [
         GeneratedFile(path="test.xml", content=xml),
         GeneratedFile(path="macros.xml", content=macros),
+        GeneratedFile(path="test-data/sample.fasta", content=b">seq1\nACGT"),
     ]
     result = validate_generated_files(files)
     assert result.valid is True
@@ -126,15 +135,16 @@ def test_validation_html_in_help_fails() -> None:
 def test_validation_markdown_in_help_ok() -> None:
     """Help section with Markdown (no HTML tags) should pass validation."""
     xml = b"""<?xml version="1.0"?>
-<tool id="test" name="Test" version="1.0.0">
-    <command>test --input $input</command>
+<tool id="test" name="Test" version="@TOOL_VERSION@+galaxy0">
+    <command detect_errors="aggressive">test --input $input</command>
     <inputs>
         <param name="input" type="data" format="fasta"/>
     </inputs>
     <outputs>
         <data name="output" format="fasta"/>
     </outputs>
-    <help>
+    <tests><test expect_num_outputs="1"><param name="input" value="sample.fasta"/></test></tests>
+    <help format="markdown">
 
 ## Overview
 
@@ -144,8 +154,12 @@ This tool does **important** things.
 - Item two
 
     </help>
+    <xrefs><xref type="bio.tools">test</xref></xrefs>
 </tool>"""
-    files = [GeneratedFile(path="test.xml", content=xml)]
+    files = [
+        GeneratedFile(path="test.xml", content=xml),
+        GeneratedFile(path="test-data/sample.fasta", content=b">seq1\nACGT"),
+    ]
     result = validate_generated_files(files)
     assert result.valid is True
 
@@ -153,13 +167,18 @@ This tool does **important** things.
 def test_validation_xml_macro_definition_ok() -> None:
     """IUC macros.xml uses <xml name="..."> elements, not <macro name="...">."""
     tool_xml = b"""<?xml version="1.0"?>
-<tool id="test" name="Test" version="1.0.0">
+<tool id="test" name="Test" version="@TOOL_VERSION@+galaxy0">
     <macros>
         <import>macros.xml</import>
     </macros>
     <expand macro="requirements"/>
     <expand macro="citations"/>
     <expand macro="bio_tools"/>
+    <command detect_errors="aggressive">test</command>
+    <inputs><param name="input" type="data" format="fasta"/></inputs>
+    <outputs><data name="output" format="fasta"/></outputs>
+    <tests><test expect_num_outputs="1"><param name="input" value="sample.fasta"/></test></tests>
+    <help format="markdown">Help</help>
 </tool>"""
     macros_xml = b"""<?xml version="1.0"?>
 <macros>
@@ -183,6 +202,7 @@ def test_validation_xml_macro_definition_ok() -> None:
     files = [
         GeneratedFile(path="test.xml", content=tool_xml),
         GeneratedFile(path="macros.xml", content=macros_xml),
+        GeneratedFile(path="test-data/sample.fasta", content=b">seq1\nACGT"),
     ]
     result = validate_generated_files(files)
     assert result.valid is True
@@ -227,3 +247,189 @@ def test_compress_file_path_traversal(tmp_path: Path) -> None:
     result = fw.compress_file({"path": "../../etc/passwd"})
     assert "Error" in result
     assert "outside" in result
+
+
+def test_validation_missing_detect_errors() -> None:
+    """Command without detect_errors=aggressive should fail."""
+    xml = b"""<?xml version="1.0"?>
+<tool id="test" name="Test" version="@TOOL_VERSION@+galaxy0">
+    <command>test --input $input</command>
+    <inputs><param name="input" type="data" format="fasta"/></inputs>
+    <outputs><data name="output" format="fasta"/></outputs>
+    <tests><test expect_num_outputs="1"><param name="input" value="s.fa"/></test></tests>
+    <help format="markdown">Help</help>
+</tool>"""
+    files = [GeneratedFile(path="test.xml", content=xml)]
+    result = validate_generated_files(files)
+    assert result.valid is False
+    assert any("detect_errors" in e for e in result.errors)
+
+
+def test_validation_missing_expect_num_outputs() -> None:
+    """Test without expect_num_outputs should fail."""
+    xml = b"""<?xml version="1.0"?>
+<tool id="test" name="Test" version="@TOOL_VERSION@+galaxy0">
+    <command detect_errors="aggressive">test</command>
+    <inputs><param name="input" type="data" format="fasta"/></inputs>
+    <outputs><data name="output" format="fasta"/></outputs>
+    <tests><test><param name="input" value="s.fa"/></test></tests>
+    <help format="markdown">Help</help>
+</tool>"""
+    files = [GeneratedFile(path="test.xml", content=xml)]
+    result = validate_generated_files(files)
+    assert result.valid is False
+    assert any("expect_num_outputs" in e for e in result.errors)
+
+
+def test_validation_missing_help_format() -> None:
+    """Help without format=markdown should fail."""
+    xml = b"""<?xml version="1.0"?>
+<tool id="test" name="Test" version="@TOOL_VERSION@+galaxy0">
+    <command detect_errors="aggressive">test</command>
+    <inputs><param name="input" type="data" format="fasta"/></inputs>
+    <outputs><data name="output" format="fasta"/></outputs>
+    <tests><test expect_num_outputs="1"><param name="input" value="s.fa"/></test></tests>
+    <help>Help text</help>
+</tool>"""
+    files = [GeneratedFile(path="test.xml", content=xml)]
+    result = validate_generated_files(files)
+    assert result.valid is False
+    assert any('format="markdown"' in e for e in result.errors)
+
+
+def test_validation_bad_tool_id() -> None:
+    """Tool ID with uppercase or invalid chars should fail."""
+    xml = b"""<?xml version="1.0"?>
+<tool id="MyTool" name="Test" version="@TOOL_VERSION@+galaxy0">
+    <command detect_errors="aggressive">test</command>
+    <inputs><param name="input" type="data" format="fasta"/></inputs>
+    <outputs><data name="output" format="fasta"/></outputs>
+    <tests><test expect_num_outputs="1"><param name="input" value="s.fa"/></test></tests>
+    <help format="markdown">Help</help>
+</tool>"""
+    files = [GeneratedFile(path="test.xml", content=xml)]
+    result = validate_generated_files(files)
+    assert result.valid is False
+    assert any("invalid characters" in e for e in result.errors)
+
+
+def test_validation_hardcoded_version() -> None:
+    """Hardcoded version string should fail."""
+    xml = b"""<?xml version="1.0"?>
+<tool id="test" name="Test" version="1.2.3">
+    <command detect_errors="aggressive">test</command>
+    <inputs><param name="input" type="data" format="fasta"/></inputs>
+    <outputs><data name="output" format="fasta"/></outputs>
+    <tests><test expect_num_outputs="1"><param name="input" value="s.fa"/></test></tests>
+    <help format="markdown">Help</help>
+</tool>"""
+    files = [GeneratedFile(path="test.xml", content=xml)]
+    result = validate_generated_files(files)
+    assert result.valid is False
+    assert any("hardcoded" in e for e in result.errors)
+
+
+def test_validation_missing_xrefs() -> None:
+    """Missing xrefs/bio.tools should fail."""
+    xml = b"""<?xml version="1.0"?>
+<tool id="test" name="Test" version="@TOOL_VERSION@+galaxy0">
+    <command detect_errors="aggressive">test</command>
+    <inputs><param name="input" type="data" format="fasta"/></inputs>
+    <outputs><data name="output" format="fasta"/></outputs>
+    <tests><test expect_num_outputs="1"><param name="input" value="s.fa"/></test></tests>
+    <help format="markdown">Help</help>
+</tool>"""
+    files = [GeneratedFile(path="test.xml", content=xml)]
+    result = validate_generated_files(files)
+    assert result.valid is False
+    assert any("bio.tools" in e for e in result.errors)
+
+
+def test_validation_cheetah_in_xml_macro() -> None:
+    """Cheetah directives in <xml> macros should fail."""
+    macros = b"""<?xml version="1.0"?>
+<macros>
+    <token name="@TOOL_VERSION@">1.0</token>
+    <xml name="bad_macro">
+        #if str($foo)
+            --flag
+        #end if
+    </xml>
+</macros>"""
+    files = [GeneratedFile(path="macros.xml", content=macros)]
+    result = validate_generated_files(files)
+    assert result.valid is False
+    assert any("Cheetah" in e for e in result.errors)
+
+
+def test_validation_optional_with_value() -> None:
+    """optional=true with a value attribute should fail."""
+    xml = b"""<?xml version="1.0"?>
+<tool id="test" name="Test" version="@TOOL_VERSION@+galaxy0">
+    <command detect_errors="aggressive">test</command>
+    <inputs>
+        <param name="score" type="float" value="0.5" optional="true" label="Score"/>
+    </inputs>
+    <outputs><data name="output" format="fasta"/></outputs>
+    <tests><test expect_num_outputs="1"><param name="input" value="s.fa"/></test></tests>
+    <help format="markdown">Help</help>
+</tool>"""
+    files = [GeneratedFile(path="test.xml", content=xml)]
+    result = validate_generated_files(files)
+    assert result.valid is False
+    assert any("optional" in e for e in result.errors)
+
+
+def test_validation_display_checkboxes() -> None:
+    """display=checkboxes on multi-select should fail."""
+    xml = b"""<?xml version="1.0"?>
+<tool id="test" name="Test" version="@TOOL_VERSION@+galaxy0">
+    <command detect_errors="aggressive">test</command>
+    <inputs>
+        <param name="items" type="select" multiple="true" display="checkboxes" label="Items">
+            <option value="A">A</option>
+        </param>
+    </inputs>
+    <outputs><data name="output" format="fasta"/></outputs>
+    <tests><test expect_num_outputs="1"><param name="input" value="s.fa"/></test></tests>
+    <help format="markdown">Help</help>
+</tool>"""
+    files = [GeneratedFile(path="test.xml", content=xml)]
+    result = validate_generated_files(files)
+    assert result.valid is False
+    assert any("display" in e for e in result.errors)
+
+
+def test_validation_all_conventions_ok() -> None:
+    """A tool that follows all IUC conventions should pass."""
+    xml = b"""<?xml version="1.0"?>
+<tool id="test_tool" name="Test Tool" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <macros><import>macros.xml</import></macros>
+    <expand macro="requirements"/>
+    <command detect_errors="aggressive"><![CDATA[test --input $input]]></command>
+    <inputs><param name="input" type="data" format="fasta"/></inputs>
+    <outputs><data name="output" format="fasta" label="${tool.name} on ${on_string}"/></outputs>
+    <tests><test expect_num_outputs="1"><param name="input" value="sample.fasta"/></test></tests>
+    <help format="markdown"><![CDATA[## Overview\n\nDoes things.]]></help>
+    <xrefs><xref type="bio.tools">test_tool</xref></xrefs>
+    <expand macro="citations"/>
+</tool>"""
+    macros = b"""<?xml version="1.0"?>
+<macros>
+    <token name="@TOOL_VERSION@">1.0</token>
+    <token name="@VERSION_SUFFIX@">0</token>
+    <token name="@PROFILE@">25.0</token>
+    <xml name="requirements">
+        <requirements><requirement type="package" version="@TOOL_VERSION@">test</requirement></requirements>
+    </xml>
+    <xml name="citations">
+        <citations><citation type="doi">10.1234/test</citation></citations>
+    </xml>
+</macros>"""
+    files = [
+        GeneratedFile(path="test_tool.xml", content=xml),
+        GeneratedFile(path="macros.xml", content=macros),
+        GeneratedFile(path="test-data/sample.fasta", content=b">seq1\nACGT"),
+    ]
+    result = validate_generated_files(files)
+    assert result.valid is True, f"Expected valid but got errors: {result.errors}"

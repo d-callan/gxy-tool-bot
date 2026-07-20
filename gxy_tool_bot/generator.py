@@ -287,6 +287,16 @@ def validate_generated_files(files: list[GeneratedFile]) -> ValidationResult:
     - XML well-formedness check on all .xml files
     - Check that test data files referenced in <tests> blocks exist
     - Check that macro tokens referenced in tool XML are defined in macros XML
+    - Check that <help> sections use Markdown, not HTML
+    - Check detect_errors="aggressive" on <command>
+    - Check expect_num_outputs on every <test>
+    - Check help format="markdown" attribute
+    - Check tool ID is lowercase [a-z0-9_-]
+    - Check version uses @TOOL_VERSION@ token
+    - Check <xrefs> with bio.tools cross-reference exists
+    - Check no Cheetah directives in <xml> macros (should be <token>)
+    - Check no optional="true" with a value attribute
+    - Check no display="checkboxes" on multi-select params
     """
     errors: list[str] = []
     file_paths = {f.path for f in files}
@@ -372,6 +382,106 @@ def validate_generated_files(files: list[GeneratedFile]) -> ValidationResult:
                     f"<help> section in {path} contains HTML tags — "
                     "Galaxy help sections must use Markdown, not HTML. "
                     "Replace HTML tags with Markdown syntax (e.g. **bold**, - bullet, # heading)."
+                )
+
+    # Check IUC conventions on tool XML files (not macros.xml)
+    for path, root in xml_contents.items():
+        if "macros.xml" in path:
+            continue
+
+        # detect_errors="aggressive" on <command>
+        command_elem = root.find(".//command")
+        if command_elem is not None:
+            detect_errors = command_elem.get("detect_errors", "")
+            if detect_errors != "aggressive":
+                errors.append(
+                    f"<command> in {path} is missing detect_errors=\"aggressive\" — "
+                    "required for proper error detection in IUC tools."
+                )
+
+        # expect_num_outputs on every <test>
+        tests_elem = root.find(".//tests")
+        if tests_elem is not None:
+            for test in tests_elem.findall("test"):
+                if "expect_num_outputs" not in test.attrib:
+                    errors.append(
+                        f"<test> in {path} is missing expect_num_outputs attribute — "
+                        "required by IUC conventions."
+                    )
+
+        # help format="markdown"
+        help_elem = root.find(".//help")
+        if help_elem is not None:
+            help_format = help_elem.get("format", "")
+            if help_format != "markdown":
+                errors.append(
+                    f"<help> in {path} is missing format=\"markdown\" — "
+                    "IUC tools should use format=\"markdown\" for help sections."
+                )
+
+        # Tool ID format: lowercase [a-z0-9_-] only
+        tool_id = root.get("id", "")
+        if tool_id and not re.match(r'^[a-z0-9_-]+$', tool_id):
+            errors.append(
+                f"Tool id '{tool_id}' in {path} contains invalid characters — "
+                "must be lowercase [a-z0-9_-] only."
+            )
+
+        # Version should use @TOOL_VERSION@ token, not hardcoded
+        version = root.get("version", "")
+        if version and not version.startswith("@"):
+            errors.append(
+                f"Tool version '{version}' in {path} appears hardcoded — "
+                "use @TOOL_VERSION@+galaxy@VERSION_SUFFIX@ token from macros.xml."
+            )
+
+        # bio.tools cross-reference — either directly in the tool XML
+        # or via a macro (e.g. <expand macro="bio_tools"/>) that defines <xrefs>
+        xrefs_elem = root.find(".//xrefs")
+        raw = ET.tostring(root, encoding="unicode")
+        has_xref_macro = bool(re.search(r'<expand\s+macro="[^"]*bio_tools[^"]*"', raw))
+        if xrefs_elem is None and not has_xref_macro:
+            errors.append(
+                f"{path} is missing <xrefs> with bio.tools cross-reference — "
+                "add <xrefs><xref type=\"bio.tools\">tool_id</xref></xrefs>."
+            )
+
+    # Check for Cheetah directives inside <xml> macros (should be <token> instead)
+    cheetah_re = re.compile(r'#(?:if|for|while|set|return)\b')
+    for path, root in xml_contents.items():
+        if "macros.xml" not in path:
+            continue
+        for xml_macro in root.iter("xml"):
+            macro_name = xml_macro.get("name", "unnamed")
+            macro_serialized = ET.tostring(xml_macro, encoding="unicode")
+            if cheetah_re.search(macro_serialized):
+                errors.append(
+                    f"<xml name=\"{macro_name}\"> in {path} contains Cheetah directives "
+                    "(#if/#for/etc.) — use <token> instead of <xml> for Cheetah snippets."
+                )
+
+    # Check for optional="true" with a value attribute on params
+    for path, root in xml_contents.items():
+        if "macros.xml" in path:
+            continue
+        for param in root.iter("param"):
+            if param.get("optional") == "true" and param.get("value") is not None:
+                param_name = param.get("name") or param.get("argument") or "unnamed"
+                errors.append(
+                    f"<param> '{param_name}' in {path} has both optional=\"true\" and a value — "
+                    "remove optional and just use the default value."
+                )
+
+    # Check for display="checkboxes" on multi-select params
+    for path, root in xml_contents.items():
+        if "macros.xml" in path:
+            continue
+        for param in root.iter("param"):
+            if param.get("display") == "checkboxes":
+                param_name = param.get("name") or param.get("argument") or "unnamed"
+                errors.append(
+                    f"<param> '{param_name}' in {path} has display=\"checkboxes\" — "
+                    "remove the display attribute; let Galaxy pick the widget."
                 )
 
     return ValidationResult(valid=len(errors) == 0, errors=errors)
