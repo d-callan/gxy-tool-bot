@@ -154,6 +154,16 @@ def generate(issue: int, config_path: str, output_dir: str, actor: str | None) -
                 tool_dir = re.sub(r'[^a-z0-9]+', '_', request.tool_name.lower()).strip('_') or "unknown"
         (Path(output_dir) / ".tool-name").write_text(tool_dir)
 
+        if generated.give_up_reason:
+            gh.add_comment(
+                issue,
+                f"⚠️ Tool generation could not be completed. The agent reported:\n\n> {generated.give_up_reason}\n\n"
+                "A maintainer review is needed. Add the `retry-generate` label to try again.",
+            )
+            gh.add_label(issue, config.labels.generation_failed)
+            click.echo(f"Agent gave up: {generated.give_up_reason}", err=True)
+            sys.exit(3)
+
         if not validation.valid:
             error_msg = "⚠️ Generation completed but validation found errors:\n\n"
             for err in validation.errors:
@@ -217,6 +227,15 @@ def address_feedback_cmd(pr_number: int, config_path: str, tool_dir: str, actor:
             logger.exception("Addressing feedback failed")
             gh.add_comment(pr_number, f"⚠️ Failed to address feedback: {exc}")
             sys.exit(2)
+
+        if generated.give_up_reason:
+            gh.add_comment(
+                pr_number,
+                f"⚠️ Feedback addressing could not be completed. The agent reported:\n\n> {generated.give_up_reason}\n\n"
+                "A maintainer review is needed.",
+            )
+            click.echo(f"Agent gave up: {generated.give_up_reason}", err=True)
+            sys.exit(3)
 
         if not validation.valid:
             error_msg = "⚠️ Feedback addressed but validation found errors:\n\n"

@@ -131,6 +131,12 @@ def run_agent_loop(
                     "tool_call_id": tc.id,
                     "content": result,
                 })
+
+                # If the agent called give_up, terminate the loop immediately
+                if result.startswith("Gave up:"):
+                    final_content = result
+                    terminated_naturally = True
+                    break
         else:
             # No tool calls — this is the final answer
             final_content = response.content or ""

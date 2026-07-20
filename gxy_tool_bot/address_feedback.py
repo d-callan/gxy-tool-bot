@@ -156,6 +156,7 @@ def address_feedback(
         files=files,
         summary=result.content if result.terminated_naturally else f"⚠️ Incomplete: {result.content}",
         tool_dir=file_writer.tool_dir,
+        give_up_reason=file_writer.give_up_reason,
     )
 
     return generated, result, validation

@@ -433,3 +433,47 @@ def test_validation_all_conventions_ok() -> None:
     ]
     result = validate_generated_files(files)
     assert result.valid is True, f"Expected valid but got errors: {result.errors}"
+
+
+def test_write_file_rejects_null_bytes(tmp_path: Path) -> None:
+    """write_file should reject content with null bytes (binary detection)."""
+    fw = FileWriter(tmp_path)
+    result = fw.write_file({"path": "test-data/sample.tar", "content": b"\x00\x01\x02\x03"})
+    assert "Error" in result
+    assert "binary" in result.lower()
+    assert "sample.tar" not in fw.files
+
+
+def test_write_file_rejects_non_utf8(tmp_path: Path) -> None:
+    """write_file should reject content that isn't valid UTF-8."""
+    fw = FileWriter(tmp_path)
+    result = fw.write_file({"path": "test-data/sample.bin", "content": b"\x80\x81\xfe\xff"})
+    assert "Error" in result
+    assert "binary" in result.lower()
+    assert "sample.bin" not in fw.files
+
+
+def test_write_file_accepts_normal_text(tmp_path: Path) -> None:
+    """write_file should accept normal text content without false-positive binary detection."""
+    fw = FileWriter(tmp_path)
+    result = fw.write_file({"path": "test.xml", "content": "<?xml version=\"1.0\"?>\n<tool/>"})
+    assert "File written" in result
+    assert "test.xml" in fw.files
+
+
+def test_give_up_sets_reason(tmp_path: Path) -> None:
+    """give_up should set give_up_reason and return a 'Gave up' message."""
+    fw = FileWriter(tmp_path)
+    assert fw.give_up_reason is None
+    result = fw.give_up({"reason": "Test data too large to download"})
+    assert "Gave up" in result
+    assert "Test data too large" in result
+    assert fw.give_up_reason == "Test data too large to download"
+
+
+def test_give_up_requires_reason(tmp_path: Path) -> None:
+    """give_up should error if no reason is provided."""
+    fw = FileWriter(tmp_path)
+    result = fw.give_up({"reason": ""})
+    assert "Error" in result
+    assert fw.give_up_reason is None

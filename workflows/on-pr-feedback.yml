@@ -69,13 +69,33 @@ jobs:
           git config user.email "gxy-tool-bot@users.noreply.github.com"
           TOOL_DIR=${{ steps.find_tool_dir.outputs.tool_dir }}
           rm -f "tools/$TOOL_DIR/.tool-name"
-          git add tools/$TOOL_DIR/
+          # Detect files that are gitignored (e.g. .tar test data)
+          IGNORED_FILES=$(find "tools/$TOOL_DIR" -type f | git check-ignore --no-index --files-from=- 2>/dev/null || true)
+          # Add everything that isn't ignored
+          git add tools/$TOOL_DIR/ || true
           if git diff --cached --quiet; then
             echo "No changes to commit"
           else
             git commit -m "Address feedback on PR #${{ github.event.pull_request.number }}"
             git push
           fi
+          # If some files were gitignored, post a comment for human review
+          if [ -n "$IGNORED_FILES" ]; then
+            IGNORED_MSG="⚠️ The following files were generated but are excluded by .gitignore and were NOT committed:\n\n"
+            for f in $IGNORED_FILES; do
+              IGNORED_MSG+=" - \`$f\`\n"
+            done
+            IGNORED_MSG+="\nThese files are needed for the tool tests. To include them, a maintainer can run \`git add -f\` for each file, or download them from the [workflow artifacts](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
+            gh pr comment ${{ github.event.pull_request.number }} --body "$(echo -e "$IGNORED_MSG")"
+          fi
+      - name: Upload gitignored files as artifacts
+        if: steps.address.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: gitignored-test-data
+          path: |
+            ${{ github.workspace }}/tools/${{ steps.find_tool_dir.outputs.tool_dir }}/test-data/*.tar
+          if-no-files-found: ignore
       - name: Handle failure
         if: steps.address.outcome == 'failure'
         env:

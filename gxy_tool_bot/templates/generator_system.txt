@@ -49,3 +49,4 @@ Then use the `write_file` tool function to produce each file. You must produce a
 - Use output labels like `${tool.name} on ${on_string}` for consistency.
 - When a tool accepts compressed input, include both compressed and uncompressed formats: `format="fasta,fasta.gz"`.
 - Use `<section name="..." title="...">` to group related parameters in complex tools.
+- **If you cannot complete the task** (e.g. required test data is too large to download, a critical dependency is unavailable, or validation errors cannot be resolved), call `give_up` with a clear explanation of what you tried and what blocked you. This is better than silently producing broken output.

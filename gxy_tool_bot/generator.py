@@ -31,6 +31,7 @@ class GeneratedTool:
     files: list[GeneratedFile]
     summary: str
     tool_dir: str | None = None
+    give_up_reason: str | None = None
 
 
 @dataclass
@@ -46,6 +47,15 @@ class FileWriter:
         self.output_dir = output_dir
         self.files: dict[str, bytes] = {}
         self.tool_dir: str | None = None
+        self.give_up_reason: str | None = None
+
+    def give_up(self, args: dict) -> str:
+        reason = args.get("reason", "")
+        if not reason:
+            return "Error: reason is required"
+        self.give_up_reason = reason
+        logger.info("Agent gave up: %s", reason)
+        return f"Gave up: {reason}"
 
     def set_tool_dir(self, args: dict) -> str:
         name = args.get("name", "")
@@ -80,6 +90,25 @@ class FileWriter:
             content_bytes = content
         else:
             content_bytes = str(content).encode("utf-8")
+
+        # Reject binary content — write_file is for text files only.
+        # Binary test data should be downloaded with download_file or
+        # created with compress_file (for .gz). We detect binary by
+        # checking for null bytes and by attempting UTF-8 decode.
+        is_binary = False
+        if b"\x00" in content_bytes:
+            is_binary = True
+        else:
+            try:
+                content_bytes.decode("utf-8")
+            except UnicodeDecodeError:
+                is_binary = True
+        if is_binary:
+            return (
+                f"Error: file '{path}' appears to be binary. "
+                "write_file only accepts text. For binary test data, use download_file "
+                "to fetch from a URL, or use compress_file for .gz files."
+            )
 
         # Reject files larger than 1MB — use download_file for binary test data
         max_write_bytes = 1_000_000
@@ -216,6 +245,23 @@ def _build_tool_definitions(file_writer: FileWriter) -> list[ToolDefinition]:
                 "required": ["url", "path"],
             },
             handler=file_writer.download_file_handler,
+        ),
+        ToolDefinition(
+            name="give_up",
+            description=(
+                "Explicitly give up if you cannot complete the task (e.g. required test data "
+                "is too large to download, a dependency is missing, or validation cannot be satisfied). "
+                "Provide a clear reason explaining what you tried and what blocked you. "
+                "This will stop the generation process and report your reason to the maintainers."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "reason": {"type": "string", "description": "Explanation of why you cannot complete the task"},
+                },
+                "required": ["reason"],
+            },
+            handler=file_writer.give_up,
         ),
         ToolDefinition(
             name="search_github",
@@ -528,6 +574,11 @@ def _run_agent_with_validation(
         if validation.valid:
             break
 
+        # If the agent explicitly gave up, don't retry — report the reason
+        if file_writer.give_up_reason:
+            logger.warning("Agent gave up: %s", file_writer.give_up_reason)
+            break
+
         logger.warning(
             "Validation errors (attempt %d/%d): %s",
             retry + 1, max_validation_retries, validation.errors,
@@ -652,6 +703,7 @@ def generate_tool(
         files=files,
         summary=result.content if result.terminated_naturally else f"⚠️ Incomplete: {result.content}",
         tool_dir=file_writer.tool_dir,
+        give_up_reason=file_writer.give_up_reason,
     )
 
     return generated, result, validation
