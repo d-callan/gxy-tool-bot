@@ -20,6 +20,7 @@ Fix the issues identified in the feedback and CI failures. Use `write_file` to r
 - Keep changes minimal and focused. Don't rewrite the entire tool XML if only a macro is wrong.
 - Follow IUC conventions strictly: naming, macros, tests, help section, citations.
 - Use `write_file` for each file you change. The path must be relative (e.g. `my_tool.xml`, `macros.xml`, `test-data/sample.bam`).
+- **Never try to write binary files directly with `write_file`.** For compressed test data, write the text file first, then call `compress_file` to create the `.gz` version. Both versions will be included in the PR.
 - Use `search_github` or `search_web` if you need to verify CLI usage or look up details.
 - Produce valid XML. The tool XML must be well-formed.
 - The `<help>` section must be written in Markdown, not HTML. Use Markdown syntax (e.g. `**bold**`, `- bullet`, `# heading`) instead of HTML tags.

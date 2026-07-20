@@ -96,6 +96,43 @@ class FileWriter:
         logger.info("write_file: %s (%d bytes)", path, len(content_bytes))
         return f"File written: {path}"
 
+    def compress_file(self, args: dict) -> str:
+        """Gzip-compress an existing file in the output directory.
+
+        Reads the source file, writes a .gz version, and tracks both in files dict.
+        The source file must already exist (written via write_file or download_file).
+        """
+        path = args.get("path", "")
+        if not path:
+            return "Error: path is required"
+
+        src = (self.output_dir / path).resolve()
+        if not src.is_relative_to(self.output_dir.resolve()):
+            return f"Error: path '{path}' is outside the output directory"
+        if not src.exists() or not src.is_file():
+            return f"Error: source file '{path}' does not exist — write it first with write_file"
+
+        # Read the source content
+        content_bytes = src.read_bytes()
+        max_compress_bytes = 1_000_000
+        if len(content_bytes) > max_compress_bytes:
+            return (
+                f"Error: source file is {len(content_bytes)} bytes (max {max_compress_bytes}). "
+                "Create smaller test data."
+            )
+
+        import gzip
+        compressed = gzip.compress(content_bytes)
+
+        gz_path = path + ".gz"
+        gz_dest = (self.output_dir / gz_path).resolve()
+        gz_dest.parent.mkdir(parents=True, exist_ok=True)
+        gz_dest.write_bytes(compressed)
+
+        self.files[gz_path] = compressed
+        logger.info("compress_file: %s -> %s (%d -> %d bytes)", path, gz_path, len(content_bytes), len(compressed))
+        return f"File compressed: {path} -> {gz_path} ({len(content_bytes)} -> {len(compressed)} bytes)"
+
     def download_file_handler(self, args: dict) -> str:
         url = args.get("url", "")
         dest_path = args.get("path", "")
@@ -139,6 +176,23 @@ def _build_tool_definitions(file_writer: FileWriter) -> list[ToolDefinition]:
                 "required": ["path", "content"],
             },
             handler=file_writer.write_file,
+        ),
+        ToolDefinition(
+            name="compress_file",
+            description=(
+                "Gzip-compress an existing file in the output directory. "
+                "Use this to create .gz test data files (e.g. sample.fasta.gz) from text files you've already written. "
+                "The source file must already exist (written via write_file). "
+                "Both the original and compressed versions will be included in the PR."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Relative path of the file to compress, e.g. 'test-data/sample.fasta'"},
+                },
+                "required": ["path"],
+            },
+            handler=file_writer.compress_file,
         ),
         ToolDefinition(
             name="fetch_url",
@@ -337,6 +391,7 @@ def _run_agent_with_validation(
 
     - Runs the agent, collects files from file_writer, validates them.
     - On validation failure, feeds errors back to the agent and retries up to max_validation_retries.
+
     - If no files were generated and no_files_nudge is provided, uses it to nudge the agent.
     - Returns (final AgentResult, files, ValidationResult).
     """

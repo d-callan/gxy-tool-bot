@@ -26,6 +26,8 @@ Then use the `write_file` tool function to produce each file. You must produce a
 - Follow IUC conventions strictly: naming, macros, tests, help section, citations.
 - Use `write_file` for each file. The path must be relative (e.g. `my_tool.xml`, `macros.xml`, `test-data/sample.bam`).
 - Keep test data small. `write_file` has a 1MB limit. `download_file` has a 10MB limit. For test data, create small synthetic samples (a few lines of FASTQ, a small CSV, etc.) rather than downloading real large files. Never try to write full-size sequencing data as test data.
+- **Never try to write binary files directly with `write_file`.** It only accepts text. For compressed test data (e.g. `sample.fasta.gz`), first write the text file with `write_file`, then call `compress_file` to create the `.gz` version. Both the uncompressed and compressed versions will be included in the PR so reviewers can see the content.
+- If a tool accepts gzipped input (e.g. `.fasta.gz`, `fastq.gz`), create test data by writing the text version first, then compressing it with `compress_file`. Reference the `.gz` file in the test `<param>` value.
 - Use `search_github` or `search_web` if you need to verify CLI usage or look up details not in the plan. These are fallbacks — the plan should have most of what you need.
 - Produce valid XML. The tool XML must be well-formed.
 - Include a `<help>` section with usage information. **The help section must be written in Markdown, not HTML.** Use Markdown syntax (e.g. `**bold**`, `- bullet`, `# heading`) instead of HTML tags.

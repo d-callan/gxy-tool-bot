@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import gzip
 from pathlib import Path
 
-from gxy_tool_bot.generator import GeneratedFile, ValidationResult, validate_generated_files
+from gxy_tool_bot.generator import GeneratedFile, ValidationResult, FileWriter, validate_generated_files
 
 
 def test_validation_valid_xml(tmp_path: Path) -> None:
@@ -185,3 +186,44 @@ def test_validation_xml_macro_definition_ok() -> None:
     ]
     result = validate_generated_files(files)
     assert result.valid is True
+
+
+def test_compress_file_creates_gz(tmp_path: Path) -> None:
+    """compress_file should create a .gz version and track both files."""
+    fw = FileWriter(tmp_path)
+    fw.write_file({"path": "test-data/sample.fasta", "content": ">seq1\nACGTACGT"})
+    result = fw.compress_file({"path": "test-data/sample.fasta"})
+    assert "compressed" in result.lower()
+    assert "test-data/sample.fasta.gz" in result
+    # Both files tracked
+    assert "test-data/sample.fasta" in fw.files
+    assert "test-data/sample.fasta.gz" in fw.files
+    # .gz file exists on disk
+    gz_path = tmp_path / "test-data" / "sample.fasta.gz"
+    assert gz_path.exists()
+    # Content is valid gzip
+    decompressed = gzip.decompress(fw.files["test-data/sample.fasta.gz"])
+    assert decompressed == b">seq1\nACGTACGT"
+
+
+def test_compress_file_missing_source(tmp_path: Path) -> None:
+    """compress_file should error if source file doesn't exist."""
+    fw = FileWriter(tmp_path)
+    result = fw.compress_file({"path": "test-data/nonexistent.fasta"})
+    assert "Error" in result
+    assert "does not exist" in result
+
+
+def test_compress_file_empty_path(tmp_path: Path) -> None:
+    """compress_file should error on empty path."""
+    fw = FileWriter(tmp_path)
+    result = fw.compress_file({"path": ""})
+    assert "Error" in result
+
+
+def test_compress_file_path_traversal(tmp_path: Path) -> None:
+    """compress_file should reject paths outside output dir."""
+    fw = FileWriter(tmp_path)
+    result = fw.compress_file({"path": "../../etc/passwd"})
+    assert "Error" in result
+    assert "outside" in result
