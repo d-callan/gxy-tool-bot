@@ -70,8 +70,12 @@ jobs:
           TOOL_DIR=${{ steps.find_tool_dir.outputs.tool_dir }}
           rm -f "tools/$TOOL_DIR/.tool-name"
           git add tools/$TOOL_DIR/
-          git commit -m "Address feedback on PR #${{ github.event.pull_request.number }}" || echo "No changes to commit"
-          git push
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Address feedback on PR #${{ github.event.pull_request.number }}"
+            git push
+          fi
       - name: Handle failure
         if: steps.address.outcome == 'failure'
         env:
