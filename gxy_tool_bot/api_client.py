@@ -71,6 +71,16 @@ class ApiClient:
 
             try:
                 data = resp.json()
+                # Validate that the response has the expected structure
+                if "choices" not in data or not data["choices"]:
+                    logger.warning("API returned JSON without choices (attempt %d/%d, status %d): %s",
+                                   attempt + 1, max_retries, resp.status_code, str(data)[:200])
+                    if attempt < max_retries - 1:
+                        import time
+                        time.sleep(5)
+                        continue
+                    logger.error("API returned invalid response after %d attempts: %s", max_retries, str(data)[:500])
+                    raise RuntimeError(f"API returned invalid response (no choices field). Response: {str(data)[:500]}")
                 break
             except json.JSONDecodeError:
                 logger.warning("API returned non-JSON response (attempt %d/%d, status %d, %d bytes)",
