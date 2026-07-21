@@ -29,18 +29,18 @@ jobs:
             --remove-label "address-feedback" || true
       - name: Find tool directory
         id: find_tool_dir
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Find the tool directory by looking for .tool-name or XML files in tools/
-          TOOL_DIR=""
-          if [ -f tools/*/.tool-name ]; then
+          # PR title format: "tool_dir: auto-generated tool wrapper (issue #N)"
+          PR_TITLE=$(gh pr view ${{ github.event.pull_request.number }} --json title --jq '.title' 2>/dev/null || echo "")
+          TOOL_DIR=$(echo "$PR_TITLE" | cut -d':' -f1 | xargs)
+          # Fallback: check for .tool-name in the PR branch
+          if [ -z "$TOOL_DIR" ] && [ -f tools/*/.tool-name ]; then
             TOOL_DIR=$(cat tools/*/.tool-name 2>/dev/null | head -1)
           fi
           if [ -z "$TOOL_DIR" ]; then
-            # Fall back: find first dir under tools/ that has an XML file
-            TOOL_DIR=$(find tools/ -maxdepth 2 -name "*.xml" -not -name "macros.xml" | head -1 | xargs dirname | xargs basename 2>/dev/null)
-          fi
-          if [ -z "$TOOL_DIR" ]; then
-            echo "Could not find tool directory"
+            echo "Could not determine tool directory from PR title or .tool-name"
             exit 1
           fi
           echo "tool_dir=$TOOL_DIR" >> $GITHUB_OUTPUT
