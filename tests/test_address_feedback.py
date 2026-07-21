@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from gxy_tool_bot.address_feedback import FeedbackContext, _build_feedback_user_prompt
+from gxy_tool_bot.address_feedback import FeedbackContext, _build_feedback_user_prompt, _summarize_test_json
 from gxy_tool_bot.github_client import Comment
 
 
@@ -18,6 +18,7 @@ def test_prompt_includes_existing_files() -> None:
         failed_checks=[],
         existing_files={"my_tool.xml": "<tool/>", "macros.xml": "<macros/>"},
         tool_dir_name="my_tool",
+        ci_artifacts={},
     )
     prompt = _build_feedback_user_prompt(ctx)
     assert "my_tool.xml" in prompt
@@ -33,6 +34,7 @@ def test_prompt_includes_maintainer_comments() -> None:
         failed_checks=[],
         existing_files={"tool.xml": "<tool/>"},
         tool_dir_name="my_tool",
+        ci_artifacts={},
     )
     prompt = _build_feedback_user_prompt(ctx)
     assert "Maintainer Comments" in prompt
@@ -50,6 +52,7 @@ def test_prompt_filters_bot_comments() -> None:
         failed_checks=[],
         existing_files={"tool.xml": "<tool/>"},
         tool_dir_name="my_tool",
+        ci_artifacts={},
     )
     prompt = _build_feedback_user_prompt(ctx)
     assert "alice" in prompt
@@ -64,6 +67,7 @@ def test_prompt_includes_review_comments() -> None:
         failed_checks=[],
         existing_files={"tool.xml": "<tool/>"},
         tool_dir_name="my_tool",
+        ci_artifacts={},
     )
     prompt = _build_feedback_user_prompt(ctx)
     assert "Review Comments" in prompt
@@ -80,6 +84,7 @@ def test_prompt_includes_ci_failures() -> None:
         ],
         existing_files={"tool.xml": "<tool/>"},
         tool_dir_name="my_tool",
+        ci_artifacts={},
     )
     prompt = _build_feedback_user_prompt(ctx)
     assert "CI Check Failures" in prompt
@@ -94,6 +99,7 @@ def test_prompt_no_feedback_sections_when_empty() -> None:
         failed_checks=[],
         existing_files={"tool.xml": "<tool/>"},
         tool_dir_name="my_tool",
+        ci_artifacts={},
     )
     prompt = _build_feedback_user_prompt(ctx)
     assert "Maintainer Comments" not in prompt
@@ -110,6 +116,7 @@ def test_prompt_review_comment_includes_file_and_line() -> None:
         failed_checks=[],
         existing_files={"tool.xml": "<tool/>"},
         tool_dir_name="my_tool",
+        ci_artifacts={},
     )
     prompt = _build_feedback_user_prompt(ctx)
     assert "tools/my_tool/my_tool.xml" in prompt
@@ -134,6 +141,7 @@ def test_prompt_ci_output_filters_to_tool() -> None:
         ],
         existing_files={"tool.xml": "<tool/>"},
         tool_dir_name="my_tool",
+        ci_artifacts={},
     )
     prompt = _build_feedback_user_prompt(ctx)
     assert "my_tool" in prompt
@@ -150,7 +158,84 @@ def test_prompt_includes_tool_scoping() -> None:
         failed_checks=[],
         existing_files={"tool.xml": "<tool/>"},
         tool_dir_name="sdust",
+        ci_artifacts={},
     )
     prompt = _build_feedback_user_prompt(ctx)
     assert "tools/sdust/" in prompt
     assert "Do NOT" in prompt
+
+
+def test_prompt_includes_ci_artifacts() -> None:
+    """CI artifact reports should be included in the prompt."""
+    ctx = FeedbackContext(
+        pr_comments=[],
+        review_comments=[],
+        failed_checks=[],
+        existing_files={"tool.xml": "<tool/>"},
+        tool_dir_name="my_tool",
+        ci_artifacts={
+            "Tool linting output/lint_report.txt": (
+                "Linting tool tools/my_tool/my_tool.xml\n"
+                "Failed linting\n"
+                ".. WARNING (HelpInvalidRST): Invalid reStructuredText found in help\n"
+            ),
+        },
+    )
+    prompt = _build_feedback_user_prompt(ctx)
+    assert "CI Artifact Reports" in prompt
+    assert "Tool linting output" in prompt
+    assert "HelpInvalidRST" in prompt
+
+
+def test_prompt_no_artifact_section_when_empty() -> None:
+    """Artifact section should not appear when no artifacts are present."""
+    ctx = FeedbackContext(
+        pr_comments=[],
+        review_comments=[],
+        failed_checks=[],
+        existing_files={"tool.xml": "<tool/>"},
+        tool_dir_name="my_tool",
+        ci_artifacts={},
+    )
+    prompt = _build_feedback_user_prompt(ctx)
+    assert "CI Artifact Reports" not in prompt
+
+
+def test_summarize_test_json_extracts_failures() -> None:
+    """_summarize_test_json should extract only failed tests with useful fields."""
+    raw = (
+        '{"tests": ['
+        '  {"id": "my_tool.test_toolbox.1", "data": {"status": "success"}},'
+        '  {"id": "my_tool.test_toolbox.2", "data": {'
+        '    "status": "error",'
+        '    "execution_problem": "Command not found",'
+        '    "output_problems": ["Output file missing"],'
+        '    "job": {"command_line": "my_tool --input x", "stdout": "ok", "stderr": "err"}'
+        '  }}'
+        '], "summary": {"num_tests": 2, "num_failures": 0, "num_errors": 1, "num_skips": 0}}'
+    )
+    result = _summarize_test_json(raw)
+    assert "my_tool.test_toolbox.2" in result
+    assert "error" in result
+    assert "Command not found" in result
+    assert "Output file missing" in result
+    assert "my_tool --input x" in result
+    # Success test should not appear
+    assert "test_toolbox.1" not in result
+
+
+def test_summarize_test_json_all_passed() -> None:
+    """_summarize_test_json should report all tests passed when no failures."""
+    raw = (
+        '{"tests": ['
+        '  {"id": "my_tool.test_toolbox.1", "data": {"status": "success"}}'
+        '], "summary": {"num_tests": 1, "num_failures": 0, "num_errors": 0, "num_skips": 0}}'
+    )
+    result = _summarize_test_json(raw)
+    assert "All 1 tests passed." in result
+
+
+def test_summarize_test_json_invalid_json() -> None:
+    """_summarize_test_json should return truncated raw on invalid JSON."""
+    result = _summarize_test_json("not json at all")
+    assert result == "not json at all"

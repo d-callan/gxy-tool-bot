@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
@@ -31,6 +32,68 @@ class FeedbackContext:
     failed_checks: list[dict]
     existing_files: dict[str, str]  # relative path -> file content
     tool_dir_name: str  # the tool directory name (e.g. "sdust")
+    ci_artifacts: dict[str, str]  # artifact name -> report content
+
+
+def _summarize_test_json(raw: str) -> str:
+    """Parse planemo test JSON and extract a compact summary of failures only.
+
+    The JSON has structure: {"tests": [{"id": "...", "data": {"status": "...", ...}}], "summary": {...}}
+    We extract only failed/error tests with their output_problems, execution_problem, and job info.
+    """
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return raw[:5000]
+
+    tests = data.get("tests", [])
+    failures = []
+    for test in tests:
+        test_data = test.get("data", {})
+        status = test_data.get("status", "")
+        if status in ("success", "skip"):
+            continue
+        entry = {"id": test.get("id", ""), "status": status}
+        if test_data.get("output_problems"):
+            entry["output_problems"] = test_data["output_problems"]
+        if test_data.get("execution_problem"):
+            entry["execution_problem"] = test_data["execution_problem"]
+        if test_data.get("problem_log"):
+            entry["problem_log"] = test_data["problem_log"][:2000]
+        job = test_data.get("job")
+        if job:
+            entry["job"] = {
+                k: v for k, v in job.items()
+                if k in ("command_line", "stdout", "stderr")
+            }
+        failures.append(entry)
+
+    if not failures:
+        summary = data.get("summary", {})
+        n = summary.get("num_tests", 0)
+        return f"All {n} tests passed." if n else "No test results found."
+
+    lines = []
+    for f in failures:
+        lines.append(f"### {f['id']} — {f['status']}")
+        if "output_problems" in f:
+            lines.append("Output problems:")
+            for p in f["output_problems"]:
+                lines.append(f"  - {p}")
+        if "execution_problem" in f:
+            lines.append(f"Execution problem: {f['execution_problem']}")
+        if "problem_log" in f:
+            lines.append(f"Problem log (truncated):\n{f['problem_log']}")
+        if "job" in f:
+            job = f["job"]
+            if job.get("command_line"):
+                lines.append(f"Command: {job['command_line']}")
+            if job.get("stderr"):
+                lines.append(f"Stderr: {job['stderr'][:2000]}")
+            if job.get("stdout"):
+                lines.append(f"Stdout: {job['stdout'][:2000]}")
+        lines.append("")
+    return "\n".join(lines)
 
 
 def _collect_feedback(gh: GitHubClient, pr_number: int, tool_dir: Path) -> FeedbackContext:
@@ -55,12 +118,46 @@ def _collect_feedback(gh: GitHubClient, pr_number: int, tool_dir: Path) -> Feedb
                 except (UnicodeDecodeError, OSError):
                     existing_files[str(rel)] = f.read_bytes().decode("utf-8", errors="replace")
 
+    # Fetch CI artifacts (lint reports, test outputs, etc.)
+    ci_artifacts: dict[str, str] = {}
+    try:
+        artifacts = gh.get_pr_artifacts(pr_number)
+
+        # If the combined test results artifact exists, skip per-chunk artifacts
+        # since the combined one already contains all test results.
+        has_combined = any(a["name"] == "All tool test results" for a in artifacts)
+
+        for artifact in artifacts:
+            name = artifact["name"]
+            # Only download artifacts that look like CI reports
+            if not any(kw in name.lower() for kw in ("lint", "test", "python", "r lint", "file size")):
+                continue
+            # Skip per-chunk test artifacts if combined results are available
+            if has_combined and name.startswith("Tool test output "):
+                continue
+            files = gh.download_artifact(artifact["id"])
+            for fname, content in files.items():
+                # Skip HTML reports — too verbose for LLM context
+                if fname.endswith(".html"):
+                    continue
+                try:
+                    text = content.decode("utf-8")
+                except UnicodeDecodeError:
+                    text = content.decode("utf-8", errors="replace")
+                # Parse planemo test JSON into a compact summary of failures
+                if fname.endswith(".json") and "test" in name.lower():
+                    text = _summarize_test_json(text)
+                ci_artifacts[f"{name}/{fname}"] = text
+    except Exception:
+        logger.warning("Failed to fetch CI artifacts", exc_info=True)
+
     return FeedbackContext(
         pr_comments=pr_comments,
         review_comments=review_comments,
         failed_checks=failed_checks,
         existing_files=existing_files,
         tool_dir_name=tool_dir.name,
+        ci_artifacts=ci_artifacts,
     )
 
 
@@ -159,6 +256,17 @@ def _build_feedback_user_prompt(ctx: FeedbackContext) -> str:
             filtered = _filter_ci_output(check.get("output", ""), ctx.tool_dir_name)
             if filtered:
                 parts.append(f"```\n{filtered}\n```\n")
+        parts.append("---\n")
+
+    # CI artifact reports (lint output, test results, etc.)
+    # Artifacts are already scoped to changed tools by the CI workflow,
+    # so no additional filtering is needed.
+    if ctx.ci_artifacts:
+        parts.append("## CI Artifact Reports\n")
+        for name, content in sorted(ctx.ci_artifacts.items()):
+            parts.append(f"### {name}\n")
+            if content:
+                parts.append(f"```\n{content}\n```\n")
         parts.append("---\n")
 
     parts.append(

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import io
 import logging
+import zipfile
 from dataclasses import dataclass
 
 import httpx
@@ -184,6 +186,59 @@ class GitHubClient:
                     })
                 page += 1
             return runs
+        return retry(_do)
+
+    def get_pr_artifacts(self, pr_number: int) -> list[dict]:
+        """Fetch artifacts from workflow runs for a PR's head SHA."""
+        pr = self.get_pr(pr_number)
+        sha = pr["head"]["sha"]
+
+        def _do() -> list[dict]:
+            resp = self._client.get(
+                f"https://api.github.com/repos/{self.repo}/actions/runs",
+                params={"head_sha": sha, "per_page": 100},
+            )
+            resp.raise_for_status()
+            runs = resp.json().get("workflow_runs", [])
+
+            artifacts: list[dict] = []
+            for run in runs:
+                run_id = run["id"]
+                page = 1
+                while True:
+                    resp = self._client.get(
+                        f"https://api.github.com/repos/{self.repo}/actions/runs/{run_id}/artifacts",
+                        params={"per_page": 100, "page": page},
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
+                    batch = data.get("artifacts", [])
+                    if not batch:
+                        break
+                    for a in batch:
+                        artifacts.append({
+                            "name": a.get("name", ""),
+                            "id": a["id"],
+                        })
+                    page += 1
+            return artifacts
+        return retry(_do)
+
+    def download_artifact(self, artifact_id: int) -> dict[str, bytes]:
+        """Download an artifact zip and extract files. Returns filename -> content."""
+        def _do() -> dict[str, bytes]:
+            resp = self._client.get(
+                f"https://api.github.com/repos/{self.repo}/actions/artifacts/{artifact_id}/zip",
+                follow_redirects=True,
+            )
+            resp.raise_for_status()
+
+            files: dict[str, bytes] = {}
+            with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
+                for name in zf.namelist():
+                    if not name.endswith("/"):
+                        files[name] = zf.read(name)
+            return files
         return retry(_do)
 
     def close(self) -> None:
