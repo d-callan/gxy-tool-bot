@@ -28,6 +28,8 @@ class Comment:
     id: int
     body: str
     author: str
+    file_path: str | None = None
+    line: int | None = None
 
 
 class GitHubClient:
@@ -149,6 +151,8 @@ class GitHubClient:
                         id=c["id"],
                         body=c.get("body", ""),
                         author=c.get("user", {}).get("login", ""),
+                        file_path=c.get("path"),
+                        line=c.get("line") or c.get("original_line"),
                     ))
                 page += 1
             return comments

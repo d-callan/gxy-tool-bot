@@ -30,6 +30,7 @@ class FeedbackContext:
     review_comments: list[Comment]
     failed_checks: list[dict]
     existing_files: dict[str, str]  # relative path -> file content
+    tool_dir_name: str  # the tool directory name (e.g. "sdust")
 
 
 def _collect_feedback(gh: GitHubClient, pr_number: int, tool_dir: Path) -> FeedbackContext:
@@ -59,12 +60,64 @@ def _collect_feedback(gh: GitHubClient, pr_number: int, tool_dir: Path) -> Feedb
         review_comments=review_comments,
         failed_checks=failed_checks,
         existing_files=existing_files,
+        tool_dir_name=tool_dir.name,
     )
+
+
+def _filter_ci_output(output: str, tool_dir_name: str) -> str:
+    """Extract only the failure-relevant lines from CI output.
+
+    Planemo lint output includes info about all tools in the repo.
+    We filter to blocks that mention the tool, then within those
+    blocks extract warning/error/failure lines with context.
+    """
+    if not output:
+        return ""
+    lines = output.splitlines()
+    relevant: list[str] = []
+
+    # Find blocks: a "Linting tool" line starts a block for that tool.
+    # We collect lines until the next "Linting tool" or "Linting repository" line.
+    in_tool_block = False
+    block_lines: list[str] = []
+    for line in lines:
+        if "Linting tool" in line:
+            # Flush previous block if it was for our tool
+            if in_tool_block and block_lines:
+                relevant.extend(block_lines)
+                relevant.append("")
+            in_tool_block = tool_dir_name in line
+            block_lines = []
+        elif "Linting repository" in line:
+            # Flush previous block
+            if in_tool_block and block_lines:
+                relevant.extend(block_lines)
+                relevant.append("")
+            in_tool_block = False
+            block_lines = []
+        elif in_tool_block:
+            # Only keep failure-related lines within our tool's block
+            is_failure = any(kw in line.upper() for kw in ("WARNING", "ERROR", "FAIL", "Failed"))
+            if is_failure:
+                block_lines.append(line)
+
+    # Flush last block
+    if in_tool_block and block_lines:
+        relevant.extend(block_lines)
+        relevant.append("")
+
+    return "\n".join(relevant) if relevant else output[:5000]
 
 
 def _build_feedback_user_prompt(ctx: FeedbackContext) -> str:
     """Build the user prompt containing existing files + feedback."""
     parts: list[str] = []
+
+    parts.append(
+        f"You are addressing feedback on the tool in `tools/{ctx.tool_dir_name}/`. "
+        f"Only modify files in this directory. Do NOT touch any other tool's files.\n"
+    )
+    parts.append("---\n")
 
     # Existing files
     parts.append("## Current Tool Files\n")
@@ -84,25 +137,32 @@ def _build_feedback_user_prompt(ctx: FeedbackContext) -> str:
             parts.append(f"**{c.author}:**\n{c.body}\n")
         parts.append("---\n")
 
-    # Review comments (inline)
+    # Review comments (inline) — include file path and line number
     if ctx.review_comments:
         parts.append("## Review Comments (inline code)\n")
         for c in ctx.review_comments:
-            parts.append(f"**{c.author}:**\n{c.body}\n")
+            location = ""
+            if c.file_path:
+                location = f" on `{c.file_path}`"
+                if c.line:
+                    location += f" at line {c.line}"
+            parts.append(f"**{c.author}:**{location}\n{c.body}\n")
         parts.append("---\n")
 
-    # CI failures
+    # CI failures — filter to relevant lines only
     if ctx.failed_checks:
         parts.append("## CI Check Failures\n")
         for check in ctx.failed_checks:
             parts.append(f"### {check['name']} — {check['conclusion']}\n")
-            if check.get("output"):
-                parts.append(f"```\n{check['output'][:5000]}\n```\n")
+            filtered = _filter_ci_output(check.get("output", ""), ctx.tool_dir_name)
+            if filtered:
+                parts.append(f"```\n{filtered}\n```\n")
         parts.append("---\n")
 
     parts.append(
-        "Fix the issues identified above. Use `write_file` to rewrite any files that need changes. "
-        "Only rewrite files that need fixing."
+        f"Fix the issues identified above for the tool in `tools/{ctx.tool_dir_name}/`. "
+        "Use `write_file` to rewrite any files that need changes. "
+        "Only rewrite files that need fixing. Do NOT modify files for any other tool."
     )
 
     return "\n".join(parts)
