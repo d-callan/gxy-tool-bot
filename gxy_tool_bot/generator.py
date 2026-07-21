@@ -13,6 +13,7 @@ from gxy_tool_bot.agent_loop import AgentResult, ToolDefinition, run_agent_loop
 from gxy_tool_bot.api_client import ApiClient
 from gxy_tool_bot.config import BotConfig
 from gxy_tool_bot.exemplars import fetch_exemplars
+from gxy_tool_bot.lookups.biotools import search_bio_tools
 from gxy_tool_bot.lookups.fetch import download_file, fetch_url
 from gxy_tool_bot.lookups.github import search_github
 from gxy_tool_bot.lookups.web import search_web
@@ -283,6 +284,21 @@ def _build_tool_definitions(file_writer: FileWriter) -> list[ToolDefinition]:
             },
             handler=lambda args: _format_web_results(search_web(args["query"])),
         ),
+        ToolDefinition(
+            name="search_bio_tools",
+            description=(
+                "Search the bio.tools registry for a tool by name. "
+                "Returns matching entries with their bio.tools ID, name, description, and tool type. "
+                "Use this to find the correct bio.tools ID before adding a <xref type=\"bio.tools\"> element. "
+                "If no match is found, do not add a bio.tools xref."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {"query": {"type": "string", "description": "Tool name to search for"}},
+                "required": ["query"],
+            },
+            handler=lambda args: _format_bio_tools_results(search_bio_tools(args["query"])),
+        ),
     ]
 
 
@@ -305,6 +321,22 @@ def _format_web_results(results: list) -> str:
         return "No web search results found."
     import json
     return json.dumps([{"title": r.title, "url": r.url, "snippet": r.snippet} for r in results])
+
+
+def _format_bio_tools_results(result) -> str:
+    if not result or result.total_results == 0:
+        return "No bio.tools entries found."
+    import json
+    return json.dumps([
+        {
+            "biotools_id": e.biotools_id,
+            "name": e.name,
+            "description": e.description,
+            "homepage": e.homepage,
+            "tooltype": e.tooltype,
+        }
+        for e in result.entries
+    ])
 
 
 def _build_exemplar_text(exemplars: list) -> str:
@@ -339,7 +371,6 @@ def validate_generated_files(files: list[GeneratedFile]) -> ValidationResult:
     - Check help format="markdown" attribute
     - Check tool ID is lowercase [a-z0-9_-]
     - Check version uses @TOOL_VERSION@ token
-    - Check <xrefs> with bio.tools cross-reference exists
     - Check no Cheetah directives in <xml> macros (should be <token>)
     - Check no optional="true" with a value attribute
     - Check no display="checkboxes" on multi-select params
@@ -481,17 +512,6 @@ def validate_generated_files(files: list[GeneratedFile]) -> ValidationResult:
             errors.append(
                 f"Tool version '{version}' in {path} appears hardcoded — "
                 "use @TOOL_VERSION@+galaxy@VERSION_SUFFIX@ token from macros.xml."
-            )
-
-        # bio.tools cross-reference — either directly in the tool XML
-        # or via a macro (e.g. <expand macro="bio_tools"/>) that defines <xrefs>
-        xrefs_elem = root.find(".//xrefs")
-        raw = ET.tostring(root, encoding="unicode")
-        has_xref_macro = bool(re.search(r'<expand\s+macro="[^"]*bio_tools[^"]*"', raw))
-        if xrefs_elem is None and not has_xref_macro:
-            errors.append(
-                f"{path} is missing <xrefs> with bio.tools cross-reference — "
-                "add <xrefs><xref type=\"bio.tools\">tool_id</xref></xrefs>."
             )
 
     # Check for Cheetah directives inside <xml> macros (should be <token> instead)

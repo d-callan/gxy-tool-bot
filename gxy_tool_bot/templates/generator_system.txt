@@ -40,7 +40,7 @@ Then use the `write_file` tool function to produce each file. You must produce a
 - Use `argument="--flag"` instead of bare `name="flag"` for CLI parameters. The `argument=` attribute auto-generates the name and displays the flag in help text.
 - Include `expect_num_outputs` on every `<test>` element.
 - Use `@TOOL_VERSION@+galaxy@VERSION_SUFFIX@` for the tool version, not hardcoded strings.
-- Include `<xrefs><xref type="bio.tools">tool_id</xref></xrefs>` for bio.tools cross-references.
+- Use `search_bio_tools` to look up the tool in the bio.tools registry before adding a `<xref type="bio.tools">` element. Only include the xref if a matching entry is found — do not guess the bio.tools ID. If the tool is not in bio.tools, omit the xref entirely.
 - Tool IDs must be lowercase `[a-z0-9_-]` only (e.g. `mytool_align`, not `MyTool-Align`).
 - **Cheetah logic (`#if`, `#for`) must be in `<token>` elements, NOT `<xml>` macros.** Cheetah inside `<xml>` macros does not work correctly.
 - Do not use `optional="true"` when a `value` default is set — just use the default.

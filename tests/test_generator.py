@@ -329,22 +329,6 @@ def test_validation_hardcoded_version() -> None:
     assert any("hardcoded" in e for e in result.errors)
 
 
-def test_validation_missing_xrefs() -> None:
-    """Missing xrefs/bio.tools should fail."""
-    xml = b"""<?xml version="1.0"?>
-<tool id="test" name="Test" version="@TOOL_VERSION@+galaxy0">
-    <command detect_errors="aggressive">test</command>
-    <inputs><param name="input" type="data" format="fasta"/></inputs>
-    <outputs><data name="output" format="fasta"/></outputs>
-    <tests><test expect_num_outputs="1"><param name="input" value="s.fa"/></test></tests>
-    <help format="markdown">Help</help>
-</tool>"""
-    files = [GeneratedFile(path="test.xml", content=xml)]
-    result = validate_generated_files(files)
-    assert result.valid is False
-    assert any("bio.tools" in e for e in result.errors)
-
-
 def test_validation_cheetah_in_xml_macro() -> None:
     """Cheetah directives in <xml> macros should fail."""
     macros = b"""<?xml version="1.0"?>
