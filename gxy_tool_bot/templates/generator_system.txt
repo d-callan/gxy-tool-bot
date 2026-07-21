@@ -37,7 +37,7 @@ Then use the `write_file` tool function to produce each file. You must produce a
 - **Every macro referenced via `<expand macro="NAME">` in the tool XML MUST be defined in `macros.xml`.** Common IUC macros that need definitions include: `requirements`, `version_command`, `stdio`, `citations`, `bio_tools`. Look at the exemplar macros.xml for the pattern — each is an `<xml name="NAME">` element inside `<macros>`. If you reference a macro, you must define it. Do not assume macros exist from an external source.
 - Use `detect_errors="aggressive"` on the `<command>` element.
 - Use `format="markdown"` on the `<help>` element: `<help format="markdown"><![CDATA[ ... ]]></help>`.
-- Use `argument="--flag"` instead of bare `name="flag"` for CLI parameters. The `argument=` attribute auto-generates the name and displays the flag in help text.
+- For CLI parameters, prefer `argument="--flag"` (Galaxy auto-derives the internal name from the flag). Use `name="..."` only when the parameter doesn't map to a single CLI flag (e.g. conditional layout choices, internal Galaxy options). Provide both `name` and `argument` only when the auto-derived name would be invalid in Cheetah (e.g. flag starts with a digit).
 - Include `expect_num_outputs` on every `<test>` element.
 - Use `@TOOL_VERSION@+galaxy@VERSION_SUFFIX@` for the tool version, not hardcoded strings.
 - Use `search_bio_tools` to look up the tool in the bio.tools registry before adding a `<xref type="bio.tools">` element. Only include the xref if a matching entry is found — do not guess the bio.tools ID. If the tool is not in bio.tools, omit the xref entirely.
@@ -49,4 +49,5 @@ Then use the `write_file` tool function to produce each file. You must produce a
 - Do not add `label` attributes to `<data>` outputs — Galaxy's default label (`${tool.name} on ${on_string}`) is sufficient and reviewers prefer it omitted.
 - When a tool accepts compressed input, include both compressed and uncompressed formats: `format="fasta,fasta.gz"`.
 - Use `<section name="..." title="...">` to group related parameters in complex tools.
+- **Planemo CI treats warnings as failures.** The CI workflow runs `planemo shed_lint --fail_level warn`, so any lint warning will cause the CI to fail. Address all warnings, not just errors.
 - **If you cannot complete the task** (e.g. required test data is too large to download, a critical dependency is unavailable, or validation errors cannot be resolved), call `give_up` with a clear explanation of what you tried and what blocked you. This is better than silently producing broken output.
