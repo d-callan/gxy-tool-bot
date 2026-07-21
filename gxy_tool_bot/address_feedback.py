@@ -316,8 +316,22 @@ def address_feedback(
 
     tools = _build_tool_definitions(file_writer)
 
-    # No no-files nudge for feedback — files already exist, the agent
-    # should be fixing them, not generating from scratch.
+    # Track which files existed before the agent runs, so we can detect
+    # if the agent only researched without modifying anything.
+    # We check the tool call trace for write_file/compress_file/download_file
+    # calls rather than comparing file sets, since feedback mode overwrites
+    # existing files (same keys, new content).
+    _WRITE_TOOLS = {"write_file", "compress_file", "download_file"}
+
+    no_files_nudge = (
+        "No files were modified in the previous attempt. The agent spent all iterations"
+        " on research instead of fixing the issues.\n\n"
+        "You MUST start fixing files immediately. Read the feedback above and use"
+        " `write_file` to rewrite the files that need changes. Do NOT call search_github,"
+        " search_web, or fetch_url until you have fixed the identified issues.\n\n"
+        "The existing files and feedback contain everything you need. Start fixing now."
+    )
+
     with ApiClient(config.api.base_url, api_key, config.api.model, read_timeout=config.api.read_timeout) as client:
         result, files, validation = _run_agent_with_validation(
             client=client,
@@ -326,6 +340,8 @@ def address_feedback(
             tools=tools,
             file_writer=file_writer,
             config=config,
+            no_files_nudge=no_files_nudge,
+            write_tools=_WRITE_TOOLS,
         )
 
     generated = GeneratedTool(

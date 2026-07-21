@@ -618,6 +618,7 @@ def _run_agent_with_validation(
     file_writer: FileWriter,
     config: BotConfig,
     no_files_nudge: str | None = None,
+    write_tools: set[str] | None = None,
 ) -> tuple[AgentResult, list[GeneratedFile], ValidationResult]:
     """
     Run the agent loop with validation retries. Shared by generate_tool and address_feedback.
@@ -625,7 +626,8 @@ def _run_agent_with_validation(
     - Runs the agent, collects files from file_writer, validates them.
     - On validation failure, feeds errors back to the agent and retries up to max_validation_retries.
 
-    - If no files were generated and no_files_nudge is provided, uses it to nudge the agent.
+    - If no write tool calls were made and no_files_nudge is provided, uses it to nudge the agent.
+    - write_tools: set of tool names that count as "writing" (default: {"write_file"}).
     - Returns (final AgentResult, files, ValidationResult).
     """
     temperature = config.api.temperature_generate
@@ -672,11 +674,17 @@ def _run_agent_with_validation(
             "Please fix these errors by rewriting the affected files with write_file."
         )
 
-        # If no files were generated at all, the agent wasted all iterations
+        # If no write tool calls were made, the agent wasted all iterations
         # researching. Keep the conversation history but add a strong nudge
         # to start writing. On the last retry, start fresh to avoid a
         # bloated context that keeps triggering research.
-        if not files and no_files_nudge:
+        #
+        # We check the tool call trace for write_file/compress_file/download_file
+        # calls rather than checking file sets, since feedback mode overwrites
+        # existing files (same keys, new content).
+        _wt = write_tools or {"write_file"}
+        made_writes = any(tc["tool"] in _wt for tc in result.tool_call_trace)
+        if not made_writes and no_files_nudge:
             if retry < max_validation_retries - 1:
                 result = run_agent_loop(
                     client=client,

@@ -4,14 +4,15 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from dataclasses import dataclass
 
 import httpx
 
 logger = logging.getLogger(__name__)
 
-# Timeout defaults: 30s connect, 300s read (large completions can be slow on some endpoints).
-_DEFAULT_READ_TIMEOUT = 300.0
+# Timeout defaults: 30s connect, 600s read (large completions can be slow on some endpoints).
+_DEFAULT_READ_TIMEOUT = 600.0
 
 
 def _make_timeout(read_timeout: float | None = None) -> httpx.Timeout:
@@ -62,12 +63,19 @@ class ApiClient:
 
         max_retries = 2
         for attempt in range(max_retries):
-            resp = self._client.post(
-                f"{self.base_url}/chat/completions",
-                json=payload,
-                headers={"Authorization": f"Bearer {self.api_key}"},
-            )
-            resp.raise_for_status()
+            try:
+                resp = self._client.post(
+                    f"{self.base_url}/chat/completions",
+                    json=payload,
+                    headers={"Authorization": f"Bearer {self.api_key}"},
+                )
+                resp.raise_for_status()
+            except (httpx.ReadTimeout, httpx.ConnectError) as e:
+                logger.warning("API error (attempt %d/%d): %s", attempt + 1, max_retries, e)
+                if attempt < max_retries - 1:
+                    time.sleep(5)
+                    continue
+                raise
 
             try:
                 data = resp.json()
@@ -76,7 +84,6 @@ class ApiClient:
                     logger.warning("API returned JSON without choices (attempt %d/%d, status %d): %s",
                                    attempt + 1, max_retries, resp.status_code, str(data)[:200])
                     if attempt < max_retries - 1:
-                        import time
                         time.sleep(5)
                         continue
                     logger.error("API returned invalid response after %d attempts: %s", max_retries, str(data)[:500])
@@ -86,7 +93,6 @@ class ApiClient:
                 logger.warning("API returned non-JSON response (attempt %d/%d, status %d, %d bytes)",
                                attempt + 1, max_retries, resp.status_code, len(resp.content))
                 if attempt < max_retries - 1:
-                    import time
                     time.sleep(5)
                     continue
                 logger.error("API returned non-JSON response after %d attempts: %s", max_retries, resp.text[:500])

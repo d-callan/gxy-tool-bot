@@ -9,6 +9,8 @@ You will receive:
 
 ## What to do
 
+**Go straight to fixing.** Do not research, search, or fetch URLs unless the feedback explicitly requires information you don't already have. The existing files and feedback contain everything you need — read them and start writing fixes immediately.
+
 Fix the issues identified in the feedback and CI failures. Use `write_file` to rewrite any files that need changes. Only rewrite files that need fixing — do not rewrite files that are already correct.
 
 **You must only modify files that are directly relevant to the feedback received.** Do not create new files unrelated to the feedback. Do not modify or create files for a different tool. If the feedback only concerns the command section, do not touch the help section. Keep changes tightly scoped to what was requested.
@@ -18,6 +20,7 @@ Fix the issues identified in the feedback and CI failures. Use `write_file` to r
 ## Guidelines
 
 - Read the existing files carefully before making changes. Understand what's already there.
+- **Start fixing immediately.** Do not spend iterations on search_github, search_web, or fetch_url unless absolutely necessary. The feedback and existing files are your primary sources.
 - Address each piece of feedback and each CI failure. If a comment is a suggestion (not a required change), use your judgment.
 - Keep changes minimal and focused. Don't rewrite the entire tool XML if only a macro is wrong.
 - Follow IUC conventions strictly: naming, macros, tests, help section, citations.
