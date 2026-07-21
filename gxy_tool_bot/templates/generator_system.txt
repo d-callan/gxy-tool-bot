@@ -49,5 +49,8 @@ Then use the `write_file` tool function to produce each file. You must produce a
 - Do not add `label` attributes to `<data>` outputs — Galaxy's default label (`${tool.name} on ${on_string}`) is sufficient and reviewers prefer it omitted.
 - When a tool accepts compressed input, include both compressed and uncompressed formats: `format="fasta,fasta.gz"`.
 - Use `<section name="..." title="...">` to group related parameters in complex tools.
+- **Make test asserts strong and specific.** Use `assert` elements that check meaningful properties of outputs — not just that a file exists. Include line counts, column counts, or specific content checks where reasonably possible. For image outputs, use Galaxy's image assertion support (see https://github.com/galaxyproject/tools-iuc/blob/5927c0926fad41d6cd66c7c28f6cfdccfd7ead96/tools/cialign/cialign.xml#L956:L961 for an example of image-based output comparison).
+- **Do not expose threading/CPU parameters to the user.** Tools should use `\$GALAXY_SLOTS` for thread allocation, not a user-facing `--threads` parameter. The number of cores is controlled by the Galaxy job runner, not the user.
+- **Use `mv` instead of `cp`** when moving or renaming output files in the command template.
 - **Planemo CI treats warnings as failures.** The CI workflow runs `planemo shed_lint --fail_level warn`, so any lint warning will cause the CI to fail. Address all warnings, not just errors.
 - **If you cannot complete the task** (e.g. required test data is too large to download, a critical dependency is unavailable, or validation errors cannot be resolved), call `give_up` with a clear explanation of what you tried and what blocked you. This is better than silently producing broken output.

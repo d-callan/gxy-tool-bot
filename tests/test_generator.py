@@ -644,3 +644,68 @@ def test_generate_commit_message_fallback_on_invalid_json() -> None:
 
     assert "PR #20" in commit_msg
     assert "sdust" in pr_body
+
+
+def test_validation_cp_in_command_fails() -> None:
+    """Command using 'cp' should fail validation — should use 'mv' instead."""
+    xml = b"""<?xml version="1.0"?>
+<tool id="test" name="Test" version="@TOOL_VERSION@+galaxy0">
+    <command detect_errors="aggressive"><![CDATA[cp output.txt $output]]></command>
+    <inputs><param name="input" type="data" format="fasta"/></inputs>
+    <outputs><data name="output" format="txt"/></outputs>
+    <tests><test expect_num_outputs="1"><param name="input" value="sample.fasta"/></test></tests>
+    <help format="markdown"><![CDATA[Does things.]]></help>
+</tool>"""
+    files = [GeneratedFile(path="test.xml", content=xml)]
+    result = validate_generated_files(files)
+    assert result.valid is False
+    assert any("cp" in e and "mv" in e for e in result.errors)
+
+
+def test_validation_mv_in_command_ok() -> None:
+    """Command using 'mv' should pass validation (not flagged like 'cp')."""
+    xml = b"""<?xml version="1.0"?>
+<tool id="test" name="Test" version="@TOOL_VERSION@+galaxy0">
+    <command detect_errors="aggressive"><![CDATA[mv output.txt $output]]></command>
+    <inputs><param name="input" type="data" format="fasta"/></inputs>
+    <outputs><data name="output" format="txt"/></outputs>
+    <tests><test expect_num_outputs="1"><param name="input" value="sample.fasta"/></test></tests>
+    <help format="markdown"><![CDATA[Does things.]]></help>
+</tool>"""
+    files = [GeneratedFile(path="test.xml", content=xml)]
+    result = validate_generated_files(files)
+    assert not any("cp" in e for e in result.errors)
+
+
+def test_read_file_returns_content(tmp_path: Path) -> None:
+    """read_file should return the contents of an existing file."""
+    fw = FileWriter(tmp_path)
+    fw.write_file({"path": "test.xml", "content": "<tool/>"})
+    result = fw.read_file({"path": "test.xml"})
+    assert result == "<tool/>"
+
+
+def test_read_file_missing_file(tmp_path: Path) -> None:
+    """read_file should error if the file doesn't exist."""
+    fw = FileWriter(tmp_path)
+    result = fw.read_file({"path": "nonexistent.xml"})
+    assert "Error" in result
+    assert "does not exist" in result
+
+
+def test_read_file_truncates_large_content(tmp_path: Path) -> None:
+    """read_file should truncate content larger than 50K chars."""
+    fw = FileWriter(tmp_path)
+    large_content = "A" * 60000
+    fw.write_file({"path": "big.txt", "content": large_content})
+    result = fw.read_file({"path": "big.txt"})
+    assert len(result) < 60000
+    assert "[truncated]" in result
+
+
+def test_read_file_path_traversal(tmp_path: Path) -> None:
+    """read_file should reject paths outside the output directory."""
+    fw = FileWriter(tmp_path)
+    result = fw.read_file({"path": "../../etc/passwd"})
+    assert "Error" in result
+    assert "outside" in result

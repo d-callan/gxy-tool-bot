@@ -22,9 +22,9 @@ def test_prompt_includes_existing_files() -> None:
     )
     prompt = _build_feedback_user_prompt(ctx)
     assert "my_tool.xml" in prompt
-    assert "<tool/>" in prompt
     assert "macros.xml" in prompt
     assert "Current Tool Files" in prompt
+    assert "read_file" in prompt
 
 
 def test_prompt_includes_maintainer_comments() -> None:

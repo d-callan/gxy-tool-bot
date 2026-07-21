@@ -70,6 +70,27 @@ class FileWriter:
         logger.info("set_tool_dir: %s", cleaned)
         return f"Tool directory set to: {cleaned}"
 
+    def read_file(self, args: dict) -> str:
+        """Read a file from the output directory and return its contents."""
+        path = args.get("path", "")
+        if not path:
+            return "Error: path is required"
+
+        src = (self.output_dir / path).resolve()
+        if not src.is_relative_to(self.output_dir.resolve()):
+            return f"Error: path '{path}' is outside the output directory"
+        if not src.exists() or not src.is_file():
+            return f"Error: file '{path}' does not exist"
+
+        try:
+            content = src.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            content = src.read_bytes().decode("utf-8", errors="replace")
+
+        if len(content) > 50000:
+            content = content[:50000] + "\n... [truncated]\n"
+        return content
+
     def write_file(self, args: dict) -> str:
         path = args.get("path", "")
         content = args.get("content", "")
@@ -194,6 +215,18 @@ def _build_tool_definitions(file_writer: FileWriter) -> list[ToolDefinition]:
                 "required": ["name"],
             },
             handler=file_writer.set_tool_dir,
+        ),
+        ToolDefinition(
+            name="read_file",
+            description="Read the contents of a file in the output directory. Use this to inspect existing files before modifying them.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Relative path, e.g. 'macros.xml', 'test-data/sample.bam'"},
+                },
+                "required": ["path"],
+            },
+            handler=file_writer.read_file,
         ),
         ToolDefinition(
             name="write_file",
@@ -376,6 +409,7 @@ def validate_generated_files(files: list[GeneratedFile]) -> ValidationResult:
     - Check no optional="true" with a value attribute
     - Check no display="checkboxes" on multi-select params
     - Check for default label pattern on <data> outputs (reviewers request removal)
+    - Check for 'cp' in command text (should use 'mv' instead)
     """
     errors: list[str] = []
     file_paths = {f.path for f in files}
@@ -605,6 +639,18 @@ def validate_generated_files(files: list[GeneratedFile]) -> ValidationResult:
                 errors.append(
                     f"<data> '{data_name}' in {path} has label=\"{label}\" — "
                     "this is the Galaxy default and is redundant. Remove the label attribute."
+                )
+
+    # Check for 'cp' in command text — should use 'mv' instead to avoid stale copies
+    for path, root in xml_contents.items():
+        if "macros.xml" in path:
+            continue
+        command_elem = root.find(".//command")
+        if command_elem is not None and command_elem.text:
+            for match in re.finditer(r'\bcp\b', command_elem.text):
+                errors.append(
+                    f"Command in {path} uses 'cp' — use 'mv' instead when moving or renaming "
+                    "output files."
                 )
 
     return ValidationResult(valid=len(errors) == 0, errors=errors)

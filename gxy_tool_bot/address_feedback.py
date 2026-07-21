@@ -224,10 +224,12 @@ def _build_feedback_user_prompt(ctx: FeedbackContext) -> str:
     )
     parts.append("---\n")
 
-    # Existing files
+    # Existing files — list names only, agent can read_file for contents
     parts.append("## Current Tool Files\n")
-    for path, content in sorted(ctx.existing_files.items()):
-        parts.append(f"### {path}\n```\n{content}\n```\n")
+    parts.append("The following files exist in the tool directory. Use `read_file` to read any file you need to inspect before modifying it.\n")
+    for path in sorted(ctx.existing_files.keys()):
+        parts.append(f"- `{path}`")
+    parts.append("")
     parts.append("---\n")
 
     # PR comments (general) — filter out bot's own comments
@@ -326,9 +328,9 @@ def address_feedback(
     no_files_nudge = (
         "No files were modified in the previous attempt. The agent spent all iterations"
         " on research instead of fixing the issues.\n\n"
-        "You MUST start fixing files immediately. Read the feedback above and use"
-        " `write_file` to rewrite the files that need changes. Do NOT call search_github,"
-        " search_web, or fetch_url until you have fixed the identified issues.\n\n"
+        "You MUST start fixing files immediately. Use `read_file` to inspect the files"
+        " you need to modify, then use `write_file` to rewrite them. Do NOT call"
+        " search_github, search_web, or fetch_url until you have fixed the identified issues.\n\n"
         "The existing files and feedback contain everything you need. Start fixing now."
     )
 
