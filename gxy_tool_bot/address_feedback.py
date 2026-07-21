@@ -116,6 +116,8 @@ def _build_feedback_user_prompt(ctx: FeedbackContext) -> str:
     parts.append(
         f"You are addressing feedback on the tool in `tools/{ctx.tool_dir_name}/`. "
         f"Only modify files in this directory. Do NOT touch any other tool's files.\n"
+        f"When using `write_file`, paths must be relative to the tool directory "
+        f"(e.g. `my_tool.xml`, not `tools/{ctx.tool_dir_name}/my_tool.xml`).\n"
     )
     parts.append("---\n")
 
@@ -161,7 +163,7 @@ def _build_feedback_user_prompt(ctx: FeedbackContext) -> str:
 
     parts.append(
         f"Fix the issues identified above for the tool in `tools/{ctx.tool_dir_name}/`. "
-        "Use `write_file` to rewrite any files that need changes. "
+        "Use `write_file` to rewrite any files that need changes — paths are relative to the tool directory. "
         "Only rewrite files that need fixing. Do NOT modify files for any other tool."
     )
 
