@@ -343,6 +343,8 @@ def validate_generated_files(files: list[GeneratedFile]) -> ValidationResult:
     - Check no Cheetah directives in <xml> macros (should be <token>)
     - Check no optional="true" with a value attribute
     - Check no display="checkboxes" on multi-select params
+    - Check for redundant name attribute when argument is defined on <param>
+    - Check for default label pattern on <data> outputs (reviewers request removal)
     """
     errors: list[str] = []
     file_paths = {f.path for f in files}
@@ -569,6 +571,40 @@ def validate_generated_files(files: list[GeneratedFile]) -> ValidationResult:
                             f"<output> '{output_name}' in a <test> in {path} is missing ftype — "
                             "test outputs should specify the expected file type (e.g. ftype=\"fasta\")."
                         )
+
+    # Check for redundant name attribute when argument is defined on <param>
+    # When argument="--flag" is used, Galaxy auto-generates the name from the flag,
+    # so an explicit name="flag" is redundant and clutters the XML.
+    for path, root in xml_contents.items():
+        if "macros.xml" in path:
+            continue
+        for param in root.iter("param"):
+            arg = param.get("argument")
+            name = param.get("name")
+            if arg and name:
+                # name is redundant if it matches the argument (with or without leading dashes)
+                normalized_arg = arg.lstrip("-").replace("-", "_")
+                if name == normalized_arg:
+                    errors.append(
+                        f"<param> '{name}' in {path} has a redundant name attribute — "
+                        f'when argument="{arg}" is used, Galaxy auto-generates the name. '
+                        f'Remove the name="{name}" attribute.'
+                    )
+
+    # Check for label attributes on <data> outputs that use the default pattern
+    # Reviewers commonly request removal of label="${tool.name} on ${on_string}"
+    # since it's the Galaxy default and doesn't need to be explicit.
+    for path, root in xml_contents.items():
+        if "macros.xml" in path:
+            continue
+        for data_elem in root.iter("data"):
+            label = data_elem.get("label", "")
+            if label and ("${tool.name}" in label and "${on_string}" in label):
+                data_name = data_elem.get("name", "unnamed")
+                errors.append(
+                    f"<data> '{data_name}' in {path} has label=\"{label}\" — "
+                    "this is the Galaxy default and is redundant. Remove the label attribute."
+                )
 
     return ValidationResult(valid=len(errors) == 0, errors=errors)
 

@@ -30,7 +30,7 @@ Then use the `write_file` tool function to produce each file. You must produce a
 - If a tool accepts gzipped input (e.g. `.fasta.gz`, `fastq.gz`), create test data by writing the text version first, then compressing it with `compress_file`. Reference the `.gz` file in the test `<param>` value.
 - Use `search_github` or `search_web` if you need to verify CLI usage or look up details not in the plan. These are fallbacks — the plan should have most of what you need.
 - Produce valid XML. The tool XML must be well-formed.
-- Include a `<help>` section with usage information. **The help section must be written in Markdown, not HTML.** Use Markdown syntax (e.g. `**bold**`, `- bullet`, `# heading`) instead of HTML tags.
+- Include a `<help>` section with usage information. **The help section must be written in Markdown, not HTML.** Use Markdown syntax (e.g. `**bold**`, `- bullet`, `# heading`) instead of HTML tags. Keep help concise and focused on what the user needs to know to run the tool — do not include authorship, attribution, version history, or extraneous detail.
 - Include `<citations>` with DOI citations where available.
 - Include at least one `<test>` case with test data.
 - If the tool needs macros, define them in `macros.xml` and import them in the tool XML.
@@ -46,7 +46,7 @@ Then use the `write_file` tool function to produce each file. You must produce a
 - Do not use `optional="true"` when a `value` default is set — just use the default.
 - Do not use `display="checkboxes"` on multi-select params — let Galaxy pick the widget.
 - Follow strict XML element order: description → macros → requirements → version_command → command → inputs → outputs → tests → help → citations.
-- Use output labels like `${tool.name} on ${on_string}` for consistency.
+- Do not add `label` attributes to `<data>` outputs — Galaxy's default label (`${tool.name} on ${on_string}`) is sufficient and reviewers prefer it omitted.
 - When a tool accepts compressed input, include both compressed and uncompressed formats: `format="fasta,fasta.gz"`.
 - Use `<section name="..." title="...">` to group related parameters in complex tools.
 - **If you cannot complete the task** (e.g. required test data is too large to download, a critical dependency is unavailable, or validation errors cannot be resolved), call `give_up` with a clear explanation of what you tried and what blocked you. This is better than silently producing broken output.

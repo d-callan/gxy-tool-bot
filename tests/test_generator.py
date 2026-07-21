@@ -464,7 +464,7 @@ def test_validation_all_conventions_ok() -> None:
     <expand macro="requirements"/>
     <command detect_errors="aggressive"><![CDATA[test --input $input]]></command>
     <inputs><param name="input" type="data" format="fasta"/></inputs>
-    <outputs><data name="output" format="fasta" label="${tool.name} on ${on_string}"/></outputs>
+    <outputs><data name="output" format="fasta"/></outputs>
     <tests><test expect_num_outputs="1"><param name="input" value="sample.fasta"/></test></tests>
     <help format="markdown"><![CDATA[## Overview\n\nDoes things.]]></help>
     <xrefs><xref type="bio.tools">test_tool</xref></xrefs>
@@ -489,6 +489,57 @@ def test_validation_all_conventions_ok() -> None:
     ]
     result = validate_generated_files(files)
     assert result.valid is True, f"Expected valid but got errors: {result.errors}"
+
+
+def test_validation_redundant_name_with_argument() -> None:
+    """name attribute is redundant when argument is used and they match."""
+    xml = b'''<?xml version="1.0"?>
+<tool id="test_tool" name="Test Tool" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="25.0">
+    <command detect_errors="aggressive"><![CDATA[test --input $input]]></command>
+    <inputs><param name="input" argument="--input" type="data" format="fasta"/></inputs>
+    <outputs><data name="output" format="fasta"/></outputs>
+    <tests><test expect_num_outputs="1"><param name="input" value="sample.fasta"/></test></tests>
+    <help format="markdown">Help</help>
+    <xrefs><xref type="bio.tools">test_tool</xref></xrefs>
+</tool>'''
+    files = [GeneratedFile(path="test.xml", content=xml)]
+    result = validate_generated_files(files)
+    assert result.valid is False
+    assert any("redundant name" in e for e in result.errors)
+
+
+def test_validation_name_ok_when_differs_from_argument() -> None:
+    """name attribute is fine when it differs from the argument."""
+    xml = b'''<?xml version="1.0"?>
+<tool id="test_tool" name="Test Tool" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="25.0">
+    <command detect_errors="aggressive"><![CDATA[test --input-file $input]]></command>
+    <inputs><param name="input" argument="--input-file" type="data" format="fasta"/></inputs>
+    <outputs><data name="output" format="fasta"/></outputs>
+    <tests><test expect_num_outputs="1"><param name="input" value="sample.fasta"/></test></tests>
+    <help format="markdown">Help</help>
+    <xrefs><xref type="bio.tools">test_tool</xref></xrefs>
+</tool>'''
+    files = [GeneratedFile(path="test.xml", content=xml),
+             GeneratedFile(path="test-data/sample.fasta", content=b">seq1\nACGT")]
+    result = validate_generated_files(files)
+    assert result.valid is True, f"Expected valid but got errors: {result.errors}"
+
+
+def test_validation_redundant_output_label() -> None:
+    """label='${tool.name} on ${on_string}' on <data> is redundant and should fail."""
+    xml = b'''<?xml version="1.0"?>
+<tool id="test_tool" name="Test Tool" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="25.0">
+    <command detect_errors="aggressive"><![CDATA[test --input $input]]></command>
+    <inputs><param name="input" type="data" format="fasta"/></inputs>
+    <outputs><data name="output" format="fasta" label="${tool.name} on ${on_string}"/></outputs>
+    <tests><test expect_num_outputs="1"><param name="input" value="sample.fasta"/></test></tests>
+    <help format="markdown">Help</help>
+    <xrefs><xref type="bio.tools">test_tool</xref></xrefs>
+</tool>'''
+    files = [GeneratedFile(path="test.xml", content=xml)]
+    result = validate_generated_files(files)
+    assert result.valid is False
+    assert any("label" in e and "redundant" in e for e in result.errors)
 
 
 def test_write_file_rejects_null_bytes(tmp_path: Path) -> None:
