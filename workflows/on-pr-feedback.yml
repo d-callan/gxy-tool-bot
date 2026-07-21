@@ -55,7 +55,8 @@ jobs:
             --pr ${{ github.event.pull_request.number }} \
             --config .gxy-tool-bot.yml \
             --tool-dir tools/${{ steps.find_tool_dir.outputs.tool_dir }} \
-            --actor ${{ github.event.sender.login }}
+            --actor ${{ github.event.sender.login }} \
+            --commit-msg-path $GITHUB_WORKSPACE/.commit-msg
       - name: Format updated XML with planemo
         if: steps.address.outcome == 'success'
         run: |
@@ -76,9 +77,17 @@ jobs:
           if git diff --cached --quiet; then
             echo "No changes to commit"
           else
-            git commit -m "Address feedback on PR #${{ github.event.pull_request.number }}"
+            # Use LLM-generated commit message if available, otherwise fallback
+            if [ -f "$GITHUB_WORKSPACE/.commit-msg" ]; then
+              COMMIT_MSG=$(cat "$GITHUB_WORKSPACE/.commit-msg")
+            else
+              COMMIT_MSG="Address feedback on PR #${{ github.event.pull_request.number }}"
+            fi
+            git commit -m "$COMMIT_MSG"
             git push
           fi
+          # Clean up intermediary file
+          rm -f "$GITHUB_WORKSPACE/.commit-msg"
           # If some files were gitignored, post a comment for human review
           if [ -n "$IGNORED_FILES" ]; then
             IGNORED_MSG="⚠️ The following files were generated but are excluded by .gitignore and were NOT committed:\n\n"

@@ -12,7 +12,8 @@ from pathlib import Path
 import click
 
 from gxy_tool_bot.config import load_config
-from gxy_tool_bot.generator import GeneratedTool, ValidationResult, generate_tool
+from gxy_tool_bot.api_client import ApiClient
+from gxy_tool_bot.generator import GeneratedTool, ValidationResult, generate_commit_message, generate_tool
 from gxy_tool_bot.github_client import GitHubClient
 from gxy_tool_bot.planner import PLAN_MARKER, find_plan_comment, generate_plan, parse_issue_body
 from gxy_tool_bot.address_feedback import address_feedback
@@ -100,7 +101,9 @@ def plan(issue: int, config_path: str) -> None:
 @click.option("--config", "config_path", type=click.Path(exists=True), default=".gxy-tool-bot.yml")
 @click.option("--output", "output_dir", type=click.Path(), default="generated/")
 @click.option("--actor", default=None, help="GitHub user who triggered the action (for maintainer check)")
-def generate(issue: int, config_path: str, output_dir: str, actor: str | None) -> None:
+@click.option("--commit-msg-path", "commit_msg_path", type=click.Path(), default=None, help="Path to write the generated commit message")
+@click.option("--pr-body-path", "pr_body_path", type=click.Path(), default=None, help="Path to write the generated PR body")
+def generate(issue: int, config_path: str, output_dir: str, actor: str | None, commit_msg_path: str | None, pr_body_path: str | None) -> None:
     """Generate tool files from a plan in a GitHub issue."""
     config = load_config(Path(config_path))
     api_key = os.environ.get(config.api.api_key_env)
@@ -183,6 +186,27 @@ def generate(issue: int, config_path: str, output_dir: str, actor: str | None) -
             summary += f"\n{_format_trace_block(result)}"
         gh.add_comment(issue, summary)
 
+        # Generate commit message and PR body via LLM
+        if commit_msg_path or pr_body_path:
+            try:
+                client = ApiClient(config.api.base_url, api_key, config.api.model)
+                commit_msg, pr_body = generate_commit_message(
+                    client, config,
+                    context={
+                        "mode": "generate",
+                        "tool_name": tool_dir,
+                        "issue_or_pr_number": issue,
+                        "summary": generated.summary,
+                    },
+                )
+                client.close()
+                if commit_msg_path:
+                    Path(commit_msg_path).write_text(commit_msg)
+                if pr_body_path:
+                    Path(pr_body_path).write_text(pr_body)
+            except Exception as e:
+                logger.warning("Failed to generate commit message/PR body: %s", e)
+
     click.echo(f"Generated {len(generated.files)} files in {output_dir}")
 
 
@@ -191,7 +215,8 @@ def generate(issue: int, config_path: str, output_dir: str, actor: str | None) -
 @click.option("--config", "config_path", type=click.Path(exists=True), default=".gxy-tool-bot.yml")
 @click.option("--tool-dir", "tool_dir", type=click.Path(), required=True, help="Path to the existing tool directory in the PR branch")
 @click.option("--actor", default=None, help="GitHub user who triggered the action (for maintainer check)")
-def address_feedback_cmd(pr_number: int, config_path: str, tool_dir: str, actor: str | None) -> None:
+@click.option("--commit-msg-path", "commit_msg_path", type=click.Path(), default=None, help="Path to write the generated commit message")
+def address_feedback_cmd(pr_number: int, config_path: str, tool_dir: str, actor: str | None, commit_msg_path: str | None) -> None:
     """Address feedback on an existing PR by fixing tool files."""
     config = load_config(Path(config_path))
     api_key = os.environ.get(config.api.api_key_env)
@@ -252,6 +277,24 @@ def address_feedback_cmd(pr_number: int, config_path: str, tool_dir: str, actor:
         if result.tool_call_trace:
             summary += f"\n\n{_format_trace_block(result)}"
         gh.add_comment(pr_number, summary)
+
+        # Generate commit message via LLM
+        if commit_msg_path:
+            try:
+                client = ApiClient(config.api.base_url, api_key, config.api.model)
+                commit_msg, _ = generate_commit_message(
+                    client, config,
+                    context={
+                        "mode": "feedback",
+                        "tool_name": Path(tool_dir).name,
+                        "issue_or_pr_number": pr_number,
+                        "summary": generated.summary,
+                    },
+                )
+                client.close()
+                Path(commit_msg_path).write_text(commit_msg)
+            except Exception as e:
+                logger.warning("Failed to generate commit message: %s", e)
 
     click.echo(f"Addressed feedback on PR #{pr_number}")
 

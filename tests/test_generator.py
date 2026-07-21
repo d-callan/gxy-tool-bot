@@ -534,3 +534,113 @@ def test_give_up_requires_reason(tmp_path: Path) -> None:
     result = fw.give_up({"reason": ""})
     assert "Error" in result
     assert fw.give_up_reason is None
+
+
+def test_generate_commit_message_generate_mode() -> None:
+    """generate_commit_message returns LLM-generated commit message and PR body."""
+    from unittest.mock import MagicMock
+    from gxy_tool_bot.generator import generate_commit_message
+    from gxy_tool_bot.api_client import ChatResponse
+
+    mock_client = MagicMock()
+    mock_client.chat.return_value = ChatResponse(
+        content='{"commit_message": "Add sdust tool wrapper for masking dusty regions", "pr_body": "This PR adds a Galaxy tool wrapper for sdust. The tool masks low-complexity (dusty) regions in FASTA sequences. Includes tool XML, macros, and test data."}',
+        tool_calls=None,
+        finish_reason="stop",
+    )
+
+    commit_msg, pr_body = generate_commit_message(
+        mock_client,
+        config=None,
+        context={
+            "mode": "generate",
+            "tool_name": "sdust",
+            "issue_or_pr_number": 9,
+            "summary": "Generated sdust tool wrapper",
+        },
+    )
+
+    assert "sdust" in commit_msg
+    assert "Galaxy tool wrapper" in pr_body
+    mock_client.chat.assert_called_once()
+
+
+def test_generate_commit_message_feedback_mode() -> None:
+    """generate_commit_message works in feedback mode."""
+    from unittest.mock import MagicMock
+    from gxy_tool_bot.generator import generate_commit_message
+    from gxy_tool_bot.api_client import ChatResponse
+
+    mock_client = MagicMock()
+    mock_client.chat.return_value = ChatResponse(
+        content='{"commit_message": "Fix bio.tools xref and remove redundant label"}',
+        tool_calls=None,
+        finish_reason="stop",
+    )
+
+    commit_msg, pr_body = generate_commit_message(
+        mock_client,
+        config=None,
+        context={
+            "mode": "feedback",
+            "tool_name": "sdust",
+            "issue_or_pr_number": 20,
+            "summary": "Fixed bio.tools xref and labels",
+        },
+    )
+
+    assert "bio.tools" in commit_msg
+    # pr_body is not generated in feedback mode, falls back
+    assert "sdust" in pr_body
+
+
+def test_generate_commit_message_fallback_on_error() -> None:
+    """generate_commit_message falls back to hardcoded strings on LLM failure."""
+    from unittest.mock import MagicMock
+    from gxy_tool_bot.generator import generate_commit_message
+
+    mock_client = MagicMock()
+    mock_client.chat.side_effect = Exception("API error")
+
+    commit_msg, pr_body = generate_commit_message(
+        mock_client,
+        config=None,
+        context={
+            "mode": "generate",
+            "tool_name": "sdust",
+            "issue_or_pr_number": 9,
+            "summary": "Generated sdust tool wrapper",
+        },
+    )
+
+    assert "sdust" in commit_msg
+    assert "issue #9" in commit_msg
+    assert "gxy-tool-bot" in pr_body
+
+
+def test_generate_commit_message_fallback_on_invalid_json() -> None:
+    """generate_commit_message falls back when LLM returns non-JSON."""
+    from unittest.mock import MagicMock
+    from gxy_tool_bot.generator import generate_commit_message
+    from gxy_tool_bot.api_client import ChatResponse
+
+    mock_client = MagicMock()
+    mock_client.chat.return_value = ChatResponse(
+        content="Here is your commit message: Add sdust tool",
+        tool_calls=None,
+        finish_reason="stop",
+    )
+
+    commit_msg, pr_body = generate_commit_message(
+        mock_client,
+        config=None,
+        context={
+            "mode": "feedback",
+            "tool_name": "sdust",
+            "issue_or_pr_number": 20,
+            "summary": "Fixed issues",
+        },
+    )
+
+    assert "PR #20" in commit_msg
+    assert "sdust" in pr_body
