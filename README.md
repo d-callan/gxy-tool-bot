@@ -82,6 +82,8 @@ Copy the workflow templates from the [`workflows/`](workflows/) directory in thi
 - **`on-ready-to-implement.yml`** → `.github/workflows/gxy-on-ready-to-implement.yml` — triggers when `ready-to-implement` or `retry-generate` label is added; runs the generator and opens a PR
 - **`on-pr-feedback.yml`** → `.github/workflows/gxy-on-pr-feedback.yml` — triggers when `address-feedback` label is added to a PR; reads review comments and CI failures, pushes fixes as new commits
 
+> **CI artifact assumption:** The feedback workflow fetches CI failure details from GitHub Actions artifacts. This assumes the CI workflow uploads failure reports as artifacts (e.g. lint reports as `.txt` files, planemo test results as `.json`), following the same conventions as the [tools-iuc](https://github.com/galaxyproject/tools-iuc) repo's `pr.yaml` workflow. If your repo uses a different CI setup that doesn't upload artifacts on failure, the bot will not be able to include CI failure details in its feedback context.
+
 Both workflows install the bot from GitHub:
 
 ```yaml

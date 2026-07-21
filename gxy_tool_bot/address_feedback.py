@@ -119,6 +119,12 @@ def _collect_feedback(gh: GitHubClient, pr_number: int, tool_dir: Path) -> Feedb
                     existing_files[str(rel)] = f.read_bytes().decode("utf-8", errors="replace")
 
     # Fetch CI artifacts (lint reports, test outputs, etc.)
+    #
+    # This assumes the CI workflow uploads failure artifacts in the same style as
+    # the IUC tools-iuc repo (e.g. 'Tool linting output', 'Python linting output',
+    # 'R linting output', 'All tool test results', 'Tool test output N').
+    # If the CI workflow behavior changes or a different repo uses different
+    # artifact naming conventions, this may not pick up CI failure info.
     ci_artifacts: dict[str, str] = {}
     try:
         artifacts = gh.get_pr_artifacts(pr_number)

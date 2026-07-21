@@ -88,6 +88,10 @@ jobs:
             gh pr comment "$PR_NUMBER" --body "🔄 Tool regenerated — previous files overwritten. [View workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
             gh issue comment ${{ github.event.issue.number }} --body "🔄 Tool regenerated and PR #$PR_NUMBER updated — previous files overwritten."
           else
+            # PR title format: "tool_dir: auto-generated tool wrapper (issue #N)"
+            # The address-feedback workflow parses this title (cut -d':' -f1) to find
+            # the tool directory. If this title format changes, the feedback loop
+            # will break unless the tool-dir detection logic is also updated.
             gh pr create \
               --head "$BRANCH" \
               --base main \
