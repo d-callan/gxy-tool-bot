@@ -626,19 +626,22 @@ def validate_generated_files(files: list[GeneratedFile]) -> ValidationResult:
                             "test outputs should specify the expected file type (e.g. ftype=\"fasta\")."
                         )
 
-    # Check for label attributes on <data> outputs that use the default pattern
-    # Reviewers commonly request removal of label="${tool.name} on ${on_string}"
-    # since it's the Galaxy default and doesn't need to be explicit.
+    # Check for <data> outputs that use the bare default label explicitly.
+    # Labels like "${tool.name} log on ${on_string}" are fine (descriptive),
+    # but the bare "${tool.name} on ${on_string}" is redundant and triggers
+    # planemo's OutputsLabelDuplicated warnings.
     for path, root in xml_contents.items():
         if "macros.xml" in path:
             continue
         for data_elem in root.iter("data"):
             label = data_elem.get("label", "")
-            if label and ("${tool.name}" in label and "${on_string}" in label):
+            if label and label.strip() == "${tool.name} on ${on_string}":
                 data_name = data_elem.get("name", "unnamed")
                 errors.append(
                     f"<data> '{data_name}' in {path} has label=\"{label}\" — "
-                    "this is the Galaxy default and is redundant. Remove the label attribute."
+                    "this is the Galaxy default and triggers planemo lint warnings. "
+                    "Either remove the label (for the first output) or use a descriptive "
+                    "label like '${{tool.name}} log on ${{on_string}}'."
                 )
 
     # Check for 'cp' in command text — should use 'mv' instead to avoid stale copies

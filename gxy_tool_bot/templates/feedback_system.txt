@@ -41,6 +41,7 @@ Fix the issues identified in the feedback and CI failures. Use `write_file` to r
 - Cheetah logic (`#if`, `#for`) must be in `<token>`, not `<xml>` macros.
 - Do not use `optional="true"` with a `value` default.
 - Do not use `display="checkboxes"` on multi-select params.
+- **Use distinct `label` attributes on `<data>` outputs when a tool has multiple outputs.** Planemo lint fails on duplicated labels. The first output can omit a label, but every additional output needs a descriptive label like `${tool.name} log on ${on_string}`. Do NOT use the bare default `${tool.name} on ${on_string}` as an explicit label.
 - **Make test asserts strong and specific.** Use `assert` elements that check meaningful properties of outputs — not just that a file exists. Include line counts, column counts, or specific content checks where reasonably possible. For image outputs, use Galaxy's image assertion support (see https://github.com/galaxyproject/tools-iuc/blob/5927c0926fad41d6cd66c7c28f6cfdccfd7ead96/tools/cialign/cialign.xml#L956:L961 for an example of image-based output comparison).
 - **Do not expose threading/CPU parameters to the user.** Tools should use `\$GALAXY_SLOTS` for thread allocation, not a user-facing `--threads` parameter. The number of cores is controlled by the Galaxy job runner, not the user.
 - **Use `mv` instead of `cp`** when moving or renaming output files in the command template.

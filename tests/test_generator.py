@@ -476,7 +476,7 @@ def test_validation_all_conventions_ok() -> None:
 
 
 def test_validation_redundant_output_label() -> None:
-    """label='${tool.name} on ${on_string}' on <data> is redundant and should fail."""
+    """Bare default label='${tool.name} on ${on_string}' on <data> should fail."""
     xml = b'''<?xml version="1.0"?>
 <tool id="test_tool" name="Test Tool" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="25.0">
     <command detect_errors="aggressive"><![CDATA[test --input $input]]></command>
@@ -489,7 +489,45 @@ def test_validation_redundant_output_label() -> None:
     files = [GeneratedFile(path="test.xml", content=xml)]
     result = validate_generated_files(files)
     assert result.valid is False
-    assert any("label" in e and "redundant" in e for e in result.errors)
+    assert any("label" in e and "default" in e for e in result.errors)
+
+
+def test_validation_descriptive_output_label_ok() -> None:
+    """Descriptive labels like '${tool.name} log on ${on_string}' should pass validation."""
+    xml = b'''<?xml version="1.0"?>
+<tool id="test_tool" name="Test Tool" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <macros><import>macros.xml</import></macros>
+    <expand macro="requirements"/>
+    <command detect_errors="aggressive"><![CDATA[test --input $input]]></command>
+    <inputs><param name="input" type="data" format="fasta"/></inputs>
+    <outputs>
+        <data name="output" format="fasta"/>
+        <data name="log" format="txt" label="${tool.name} log on ${on_string}"/>
+    </outputs>
+    <tests><test expect_num_outputs="2"><param name="input" value="sample.fasta"/></test></tests>
+    <help format="markdown"><![CDATA[## Overview\n\nDoes things.]]></help>
+    <xrefs><xref type="bio.tools">test_tool</xref></xrefs>
+    <expand macro="citations"/>
+</tool>'''
+    macros = b"""<?xml version="1.0"?>
+<macros>
+    <token name="@TOOL_VERSION@">1.0</token>
+    <token name="@VERSION_SUFFIX@">0</token>
+    <token name="@PROFILE@">25.0</token>
+    <xml name="requirements">
+        <requirements><requirement type="package" version="@TOOL_VERSION@">test</requirement></requirements>
+    </xml>
+    <xml name="citations">
+        <citations><citation type="doi">10.1234/test</citation></citations>
+    </xml>
+</macros>"""
+    files = [
+        GeneratedFile(path="test_tool.xml", content=xml),
+        GeneratedFile(path="macros.xml", content=macros),
+        GeneratedFile(path="test-data/sample.fasta", content=b">seq1\nACGT"),
+    ]
+    result = validate_generated_files(files)
+    assert not any("label" in e for e in result.errors)
 
 
 def test_write_file_rejects_null_bytes(tmp_path: Path) -> None:
