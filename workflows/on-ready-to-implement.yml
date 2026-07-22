@@ -84,9 +84,7 @@ jobs:
           if [ -f "$GITHUB_WORKSPACE/.commit-msg" ]; then
             COMMIT_MSG=$(cat "$GITHUB_WORKSPACE/.commit-msg")
           else
-            COMMIT_MSG="Generate tool for issue #${{ github.event.issue.number }}
-
-Closes #${{ github.event.issue.number }}"
+            COMMIT_MSG=$(printf "Generate tool for issue #%s\n\nCloses #%s" "${{ github.event.issue.number }}" "${{ github.event.issue.number }}")
           fi
           git commit -m "$COMMIT_MSG"
           git push origin "$BRANCH" --force
