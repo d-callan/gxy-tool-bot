@@ -231,3 +231,48 @@ def test_chat_no_fallback_retries_same_model() -> None:
             result = client.chat([{"role": "user", "content": "hi"}])
     assert result.content == "recovered"
     client.close()
+
+
+def test_chat_fallback_uses_correct_model_name_in_payload() -> None:
+    """Should send the fallback model name in the payload on retry."""
+    client = ApiClient("https://api.example.com", "test-key", "primary",
+                       read_timeout=30.0, fallback_models=["fallback-model"])
+    good_resp = _mock_response({
+        "choices": [{
+            "message": {"content": "ok"},
+            "finish_reason": "stop",
+        }],
+    })
+    captured_payloads: list[dict] = []
+
+    def _capture_post(url, json, headers):
+        captured_payloads.append(dict(json))
+        if len(captured_payloads) == 1:
+            raise httpx.ReadTimeout("timeout")
+        return good_resp
+
+    with patch.object(client._client, "post", side_effect=_capture_post):
+        with patch("time.sleep"):
+            client.chat([{"role": "user", "content": "hi"}])
+
+    assert len(captured_payloads) == 2
+    assert captured_payloads[0]["model"] == "primary"
+    assert captured_payloads[1]["model"] == "fallback-model"
+    client.close()
+
+
+def test_chat_falls_back_on_connect_error() -> None:
+    """Should try fallback model on ConnectError, not just ReadTimeout."""
+    client = ApiClient("https://api.example.com", "test-key", "primary",
+                       read_timeout=30.0, fallback_models=["fallback-model"])
+    good_resp = _mock_response({
+        "choices": [{
+            "message": {"content": "recovered"},
+            "finish_reason": "stop",
+        }],
+    })
+    with patch.object(client._client, "post", side_effect=[httpx.ConnectError("conn refused"), good_resp]):
+        with patch("time.sleep"):
+            result = client.chat([{"role": "user", "content": "hi"}])
+    assert result.content == "recovered"
+    client.close()
