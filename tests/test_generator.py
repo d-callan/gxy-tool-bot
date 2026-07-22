@@ -5,7 +5,8 @@ from __future__ import annotations
 import gzip
 from pathlib import Path
 
-from gxy_tool_bot.generator import GeneratedFile, ValidationResult, FileWriter, validate_generated_files
+from gxy_tool_bot.generator import GeneratedFile, FileWriter
+from gxy_tool_bot.validation import ValidationResult, validate_generated_files
 
 
 def test_validation_valid_xml(tmp_path: Path) -> None:

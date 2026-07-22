@@ -13,7 +13,8 @@ import click
 
 from gxy_tool_bot.config import load_config
 from gxy_tool_bot.api_client import ApiClient
-from gxy_tool_bot.generator import GeneratedTool, ValidationResult, generate_commit_message, generate_tool
+from gxy_tool_bot.generator import GeneratedTool, generate_commit_message, generate_tool
+from gxy_tool_bot.validation import ValidationResult
 from gxy_tool_bot.github_client import GitHubClient
 from gxy_tool_bot.planner import PLAN_MARKER, find_plan_comment, generate_plan, parse_issue_body
 from gxy_tool_bot.address_feedback import address_feedback

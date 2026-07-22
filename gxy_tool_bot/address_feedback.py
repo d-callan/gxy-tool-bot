@@ -14,11 +14,10 @@ from gxy_tool_bot.generator import (
     GeneratedFile,
     GeneratedTool,
     FileWriter,
-    ValidationResult,
     _build_tool_definitions,
     _load_template,
-    _run_agent_with_validation,
 )
+from gxy_tool_bot.validation import ValidationResult, run_agent_with_validation
 from gxy_tool_bot.github_client import Comment, GitHubClient
 
 logger = logging.getLogger(__name__)
@@ -335,7 +334,7 @@ def address_feedback(
     )
 
     with ApiClient(config.api.base_url, api_key, config.api.model, read_timeout=config.api.read_timeout) as client:
-        result, files, validation = _run_agent_with_validation(
+        result, files, validation = run_agent_with_validation(
             client=client,
             system_prompt=system_prompt,
             user_prompt=user_prompt,
