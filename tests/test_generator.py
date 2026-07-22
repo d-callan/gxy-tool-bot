@@ -685,6 +685,61 @@ def test_generate_commit_message_fallback_on_invalid_json() -> None:
     assert "sdust" in pr_body
 
 
+def test_generate_commit_message_retries_on_invalid_json() -> None:
+    """generate_commit_message retries when LLM returns non-JSON, then succeeds."""
+    from unittest.mock import MagicMock
+    from gxy_tool_bot.generator import generate_commit_message
+    from gxy_tool_bot.api_client import ChatResponse
+
+    mock_client = MagicMock()
+    mock_client.chat.side_effect = [
+        ChatResponse(content="Here is the message: Add sdust", tool_calls=None, finish_reason="stop"),
+        ChatResponse(content='{"commit_message": "Add sdust tool wrapper", "pr_body": "Generated sdust wrapper."}', tool_calls=None, finish_reason="stop"),
+    ]
+
+    commit_msg, pr_body = generate_commit_message(
+        mock_client,
+        config=None,
+        context={
+            "mode": "generate",
+            "tool_name": "sdust",
+            "issue_or_pr_number": 9,
+            "summary": "Generated sdust tool wrapper",
+        },
+    )
+
+    assert commit_msg == "Add sdust tool wrapper"
+    assert "sdust" in pr_body
+    assert mock_client.chat.call_count == 2
+
+
+def test_generate_commit_message_retries_on_empty_content() -> None:
+    """generate_commit_message retries when LLM returns empty content, then succeeds."""
+    from unittest.mock import MagicMock
+    from gxy_tool_bot.generator import generate_commit_message
+    from gxy_tool_bot.api_client import ChatResponse
+
+    mock_client = MagicMock()
+    mock_client.chat.side_effect = [
+        ChatResponse(content=None, tool_calls=None, finish_reason="stop"),
+        ChatResponse(content='{"commit_message": "Add sdust", "pr_body": "Generated."}', tool_calls=None, finish_reason="stop"),
+    ]
+
+    commit_msg, pr_body = generate_commit_message(
+        mock_client,
+        config=None,
+        context={
+            "mode": "generate",
+            "tool_name": "sdust",
+            "issue_or_pr_number": 9,
+            "summary": "Generated sdust tool wrapper",
+        },
+    )
+
+    assert commit_msg == "Add sdust"
+    assert mock_client.chat.call_count == 2
+
+
 def test_validation_cp_in_command_fails() -> None:
     """Command using 'cp' should fail validation — should use 'mv' instead."""
     xml = b"""<?xml version="1.0"?>

@@ -503,28 +503,55 @@ def generate_commit_message(
             "Generate a commit message and PR description."
         )
 
-    try:
-        response = client.chat(
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            temperature=0.3,
-        )
-        content = response.content or ""
-        parsed = json.loads(content)
-        commit_message = parsed.get("commit_message", "").strip()
-        pr_body = parsed.get("pr_body", "").strip()
-        if not commit_message:
-            logger.warning("LLM returned empty commit message, using fallback")
-            commit_message = _fallback_commit_message(mode, tool_name, number)
-        if not pr_body:
-            logger.warning("LLM returned empty PR body, using fallback")
-            pr_body = _fallback_pr_body(mode, tool_name, number)
-        return commit_message, pr_body
-    except (json.JSONDecodeError, Exception) as e:
-        logger.warning("Failed to generate commit message via LLM: %s", e)
-        return _fallback_commit_message(mode, tool_name, number), _fallback_pr_body(mode, tool_name, number)
+    max_attempts = 3
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
+    for attempt in range(max_attempts):
+        try:
+            response = client.chat(messages=messages, temperature=0.3)
+            content = (response.content or "").strip()
+            if not content:
+                logger.warning("LLM returned empty content for commit message (attempt %d/%d)", attempt + 1, max_attempts)
+                if attempt < max_attempts - 1:
+                    messages.append({"role": "assistant", "content": ""})
+                    messages.append({"role": "user", "content": "Your response was empty. Please respond with the JSON object as instructed."})
+                    continue
+                break
+            parsed = json.loads(content)
+            commit_message = parsed.get("commit_message", "").strip()
+            pr_body = parsed.get("pr_body", "").strip()
+            if not commit_message:
+                logger.warning("LLM returned JSON without commit_message (attempt %d/%d)", attempt + 1, max_attempts)
+                if attempt < max_attempts - 1:
+                    messages.append({"role": "assistant", "content": content})
+                    messages.append({"role": "user", "content": "The \"commit_message\" field was missing or empty. Please respond again with a valid JSON object containing a non-empty \"commit_message\"."})
+                    continue
+                commit_message = _fallback_commit_message(mode, tool_name, number)
+            if not pr_body:
+                if mode != "feedback":
+                    logger.warning("LLM returned JSON without pr_body (attempt %d/%d)", attempt + 1, max_attempts)
+                    if attempt < max_attempts - 1:
+                        messages.append({"role": "assistant", "content": content})
+                        messages.append({"role": "user", "content": "The \"pr_body\" field was missing or empty. Please respond again with a valid JSON object containing both \"commit_message\" and a non-empty \"pr_body\"."})
+                        continue
+                    pr_body = _fallback_pr_body(mode, tool_name, number)
+                else:
+                    pr_body = _fallback_pr_body(mode, tool_name, number)
+            return commit_message, pr_body
+        except json.JSONDecodeError as e:
+            logger.warning("LLM returned non-JSON for commit message (attempt %d/%d): %s", attempt + 1, max_attempts, e)
+            if attempt < max_attempts - 1:
+                messages.append({"role": "assistant", "content": content if 'content' in locals() else ""})
+                messages.append({"role": "user", "content": f"Your response was not valid JSON: {e}. Please respond with ONLY a JSON object, no other text."})
+                continue
+            break
+        except Exception as e:
+            logger.warning("Failed to generate commit message via LLM (attempt %d/%d): %s", attempt + 1, max_attempts, e)
+            break
+
+    return _fallback_commit_message(mode, tool_name, number), _fallback_pr_body(mode, tool_name, number)
 
 
 def _fallback_commit_message(mode: str, tool_name: str, number: str | int) -> str:
