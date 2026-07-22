@@ -116,6 +116,10 @@ Make sure Actions are enabled: Settings → Actions → General → "Allow all a
 4. After the plan is posted, add the `ready-to-implement` label
 5. The generation workflow should run and open a PR
 
+## Development
+
+See [DEVELOPMENT.md](DEVELOPMENT.md) for guidance on the codebase structure, where to add new conventions (prompts vs. validation vs. let CI catch it), and how the generation and feedback flows are organized.
+
 ## License
 
 MIT
