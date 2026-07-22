@@ -38,7 +38,7 @@ def test_load_valid_config(tmp_path: Path) -> None:
     assert config.api.temperature_generate == 0.2
     assert config.api.max_context_chars == 100_000
     assert config.api.api_key_env == "GXY_TOOL_BOT_API_KEY"
-    assert config.api.read_timeout == 300.0
+    assert config.api.read_timeout == 600.0
 
     assert len(config.exemplars) == 1
     assert config.exemplars[0].url == "https://example.com/tool.xml"

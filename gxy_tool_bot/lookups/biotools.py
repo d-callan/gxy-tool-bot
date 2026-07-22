@@ -46,6 +46,10 @@ def search_bio_tools(query: str) -> BioToolsResult | None:
             resp.raise_for_status()
             data = resp.json()
 
+        if not isinstance(data, dict):
+            logger.warning("bio.tools returned unexpected type %s for '%s'", type(data).__name__, query)
+            return BioToolsResult(query=query, total_results=0, entries=[])
+
         total = int(data.get("count", 0))
         if total == 0:
             return BioToolsResult(query=query, total_results=0, entries=[])
@@ -53,9 +57,9 @@ def search_bio_tools(query: str) -> BioToolsResult | None:
         entries: list[BioToolsEntry] = []
         for item in data.get("list", []):
             tooltype = [
-                t.get("tooltype", "")
+                t if isinstance(t, str) else t.get("tooltype", "")
                 for t in item.get("toolType", [])
-                if t.get("tooltype")
+                if (t if isinstance(t, str) else t.get("tooltype"))
             ]
             entries.append(BioToolsEntry(
                 biotools_id=item.get("biotoolsID", ""),
