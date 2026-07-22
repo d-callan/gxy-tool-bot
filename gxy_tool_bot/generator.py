@@ -429,7 +429,7 @@ def generate_tool(
 
     from gxy_tool_bot.validation import run_agent_with_validation, ValidationResult
 
-    with ApiClient(config.api.base_url, api_key, config.api.model, read_timeout=config.api.read_timeout) as client:
+    with ApiClient(config.api.base_url, api_key, config.api.model, read_timeout=config.api.read_timeout, fallback_models=config.api.fallback_models) as client:
         result, files, validation = run_agent_with_validation(
             client=client,
             system_prompt=system_prompt,

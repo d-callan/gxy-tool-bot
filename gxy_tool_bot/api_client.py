@@ -36,10 +36,12 @@ class ChatResponse:
 class ApiClient:
     """Client for OpenAI-compatible chat completions API."""
 
-    def __init__(self, base_url: str, api_key: str, model: str, read_timeout: float | None = None):
+    def __init__(self, base_url: str, api_key: str, model: str, read_timeout: float | None = None,
+                 fallback_models: list[str] | None = None):
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.model = model
+        self.fallback_models = fallback_models or []
         self._client = httpx.Client(timeout=_make_timeout(read_timeout))
 
     def chat(
@@ -59,10 +61,17 @@ class ApiClient:
                 {"type": "function", "function": t} for t in tools
             ]
 
-        logger.debug("Sending chat request: model=%s, messages=%d", self.model, len(messages))
+        # Build model retry sequence: primary model first, then fallbacks.
+        # If no fallbacks, duplicate primary so it gets at least 2 attempts (preserving prior behavior).
+        models_to_try = [self.model] + self.fallback_models
+        if not self.fallback_models:
+            models_to_try.append(self.model)
+        max_retries = len(models_to_try)
 
-        max_retries = 2
-        for attempt in range(max_retries):
+        data = None
+        for attempt, model_used in enumerate(models_to_try):
+            payload["model"] = model_used
+            logger.debug("Sending chat request: model=%s, messages=%d", model_used, len(messages))
             try:
                 resp = self._client.post(
                     f"{self.base_url}/chat/completions",
@@ -71,7 +80,7 @@ class ApiClient:
                 )
                 resp.raise_for_status()
             except (httpx.ReadTimeout, httpx.ConnectError) as e:
-                logger.warning("API error (attempt %d/%d): %s", attempt + 1, max_retries, e)
+                logger.warning("API error with model %s (attempt %d/%d): %s", model_used, attempt + 1, max_retries, e)
                 if attempt < max_retries - 1:
                     time.sleep(5)
                     continue

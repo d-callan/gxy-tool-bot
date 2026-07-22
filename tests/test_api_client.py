@@ -168,3 +168,66 @@ def test_chat_raises_on_http_error() -> None:
         with pytest.raises(httpx.HTTPStatusError):
             client.chat([{"role": "user", "content": "hi"}])
     client.close()
+
+
+def test_chat_falls_back_on_read_timeout() -> None:
+    """Should try fallback model when primary times out."""
+    client = ApiClient("https://api.example.com", "test-key", "primary-model",
+                       read_timeout=30.0, fallback_models=["fallback-model"])
+    good_resp = _mock_response({
+        "choices": [{
+            "message": {"content": "recovered"},
+            "finish_reason": "stop",
+        }],
+    })
+    with patch.object(client._client, "post", side_effect=[httpx.ReadTimeout("timeout"), good_resp]):
+        with patch("time.sleep"):
+            result = client.chat([{"role": "user", "content": "hi"}])
+    assert result.content == "recovered"
+    client.close()
+
+
+def test_chat_cycles_through_all_fallbacks() -> None:
+    """Should try each fallback model in order until one succeeds."""
+    client = ApiClient("https://api.example.com", "test-key", "primary",
+                       read_timeout=30.0, fallback_models=["fb1", "fb2"])
+    good_resp = _mock_response({
+        "choices": [{
+            "message": {"content": "success on fb2"},
+            "finish_reason": "stop",
+        }],
+    })
+    with patch.object(client._client, "post",
+                      side_effect=[httpx.ReadTimeout("t1"), httpx.ReadTimeout("t2"), good_resp]):
+        with patch("time.sleep"):
+            result = client.chat([{"role": "user", "content": "hi"}])
+    assert result.content == "success on fb2"
+    client.close()
+
+
+def test_chat_raises_after_all_fallbacks_timeout() -> None:
+    """Should raise after all models (primary + fallbacks) time out."""
+    client = ApiClient("https://api.example.com", "test-key", "primary",
+                       read_timeout=30.0, fallback_models=["fb1", "fb2"])
+    with patch.object(client._client, "post",
+                      side_effect=[httpx.ReadTimeout("t1"), httpx.ReadTimeout("t2"), httpx.ReadTimeout("t3")]):
+        with patch("time.sleep"):
+            with pytest.raises(httpx.ReadTimeout):
+                client.chat([{"role": "user", "content": "hi"}])
+    client.close()
+
+
+def test_chat_no_fallback_retries_same_model() -> None:
+    """Without fallbacks, should retry the same model twice (preserving prior behavior)."""
+    client = _make_client()
+    good_resp = _mock_response({
+        "choices": [{
+            "message": {"content": "recovered"},
+            "finish_reason": "stop",
+        }],
+    })
+    with patch.object(client._client, "post", side_effect=[httpx.ReadTimeout("t1"), good_resp]):
+        with patch("time.sleep"):
+            result = client.chat([{"role": "user", "content": "hi"}])
+    assert result.content == "recovered"
+    client.close()

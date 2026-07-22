@@ -19,6 +19,7 @@ class ApiConfig:
     max_validation_retries: int = 3
     api_key_env: str = "GXY_TOOL_BOT_API_KEY"
     read_timeout: float = 600.0
+    fallback_models: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -67,6 +68,7 @@ def load_config(path: Path) -> BotConfig:
         max_validation_retries=api_raw.get("max_validation_retries", 3),
         api_key_env=api_raw.get("api_key_env", "GXY_TOOL_BOT_API_KEY"),
         read_timeout=float(api_raw.get("read_timeout", 600.0)),
+        fallback_models=api_raw.get("fallback_models", []),
     )
 
     exemplars_raw = raw.get("exemplars", [])

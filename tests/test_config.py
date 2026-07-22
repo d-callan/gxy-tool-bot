@@ -69,6 +69,22 @@ def test_load_config_custom_read_timeout(tmp_path: Path) -> None:
     assert config.api.read_timeout == 600.0
 
 
+def test_load_config_fallback_models(tmp_path: Path) -> None:
+    data = _valid_config()
+    data["api"]["fallback_models"] = ["deepseek-thinking", "kimi"]
+    path = _write_config(tmp_path, data)
+    config = load_config(path)
+
+    assert config.api.fallback_models == ["deepseek-thinking", "kimi"]
+
+
+def test_load_config_fallback_models_default_empty(tmp_path: Path) -> None:
+    path = _write_config(tmp_path, _valid_config())
+    config = load_config(path)
+
+    assert config.api.fallback_models == []
+
+
 def test_load_config_missing_api(tmp_path: Path) -> None:
     data = _valid_config()
     del data["api"]

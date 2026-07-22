@@ -333,7 +333,7 @@ def address_feedback(
         "The existing files and feedback contain everything you need. Start fixing now."
     )
 
-    with ApiClient(config.api.base_url, api_key, config.api.model, read_timeout=config.api.read_timeout) as client:
+    with ApiClient(config.api.base_url, api_key, config.api.model, read_timeout=config.api.read_timeout, fallback_models=config.api.fallback_models) as client:
         result, files, validation = run_agent_with_validation(
             client=client,
             system_prompt=system_prompt,

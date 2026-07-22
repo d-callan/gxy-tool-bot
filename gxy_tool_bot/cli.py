@@ -190,7 +190,7 @@ def generate(issue: int, config_path: str, output_dir: str, actor: str | None, c
         # Generate commit message and PR body via LLM
         if commit_msg_path or pr_body_path:
             try:
-                client = ApiClient(config.api.base_url, api_key, config.api.model)
+                client = ApiClient(config.api.base_url, api_key, config.api.model, fallback_models=config.api.fallback_models)
                 commit_msg, pr_body = generate_commit_message(
                     client, config,
                     context={
@@ -282,7 +282,7 @@ def address_feedback_cmd(pr_number: int, config_path: str, tool_dir: str, actor:
         # Generate commit message via LLM
         if commit_msg_path:
             try:
-                client = ApiClient(config.api.base_url, api_key, config.api.model)
+                client = ApiClient(config.api.base_url, api_key, config.api.model, fallback_models=config.api.fallback_models)
                 commit_msg, _ = generate_commit_message(
                     client, config,
                     context={
