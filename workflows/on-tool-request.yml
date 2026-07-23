@@ -8,6 +8,7 @@ concurrency:
 
 jobs:
   plan:
+    name: Plan Tool Request
     if: |
       (github.event.action == 'opened' && contains(github.event.issue.labels.*.name, 'tool-request')) ||
       (github.event.action == 'labeled' && github.event.label.name == 'retry-plan')

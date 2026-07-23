@@ -8,6 +8,7 @@ concurrency:
 
 jobs:
   generate:
+    name: Generate Tool Files
     if: |
       github.event.label.name == 'ready-to-implement' ||
       github.event.label.name == 'retry-generate'

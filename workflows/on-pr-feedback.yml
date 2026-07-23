@@ -8,6 +8,7 @@ concurrency:
 
 jobs:
   address-feedback:
+    name: Address PR Feedback
     if: contains(github.event.pull_request.labels.*.name, 'address-feedback')
     runs-on: ubuntu-latest
     steps:
