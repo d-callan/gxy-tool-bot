@@ -740,6 +740,93 @@ def test_generate_commit_message_retries_on_empty_content() -> None:
     assert mock_client.chat.call_count == 2
 
 
+def test_generate_commit_message_feedback_strips_closes_ref() -> None:
+    """Feedback commit messages should not contain Closes #N references."""
+    from unittest.mock import MagicMock
+    from gxy_tool_bot.generator import generate_commit_message
+    from gxy_tool_bot.api_client import ChatResponse
+
+    mock_client = MagicMock()
+    mock_client.chat.return_value = ChatResponse(
+        content='{"commit_message": "Fix test data Closes #8", "pr_body": ""}',
+        tool_calls=None,
+        finish_reason="stop",
+    )
+
+    commit_msg, _ = generate_commit_message(
+        mock_client,
+        config=None,
+        context={
+            "mode": "feedback",
+            "tool_name": "sdust",
+            "issue_or_pr_number": 19,
+            "summary": "Fixed test data issues",
+        },
+    )
+
+    assert "Closes" not in commit_msg
+    assert "#8" not in commit_msg
+    assert "Fix test data" in commit_msg
+
+
+def test_generate_commit_message_feedback_strips_fixes_ref() -> None:
+    """Feedback commit messages should strip Fixes/Resolves #N too."""
+    from unittest.mock import MagicMock
+    from gxy_tool_bot.generator import generate_commit_message
+    from gxy_tool_bot.api_client import ChatResponse
+
+    mock_client = MagicMock()
+    mock_client.chat.return_value = ChatResponse(
+        content='{"commit_message": "Update macros Fixes #12 and Resolves #15", "pr_body": ""}',
+        tool_calls=None,
+        finish_reason="stop",
+    )
+
+    commit_msg, _ = generate_commit_message(
+        mock_client,
+        config=None,
+        context={
+            "mode": "feedback",
+            "tool_name": "sdust",
+            "issue_or_pr_number": 19,
+            "summary": "Fixed issues",
+        },
+    )
+
+    assert "Fixes" not in commit_msg
+    assert "Resolves" not in commit_msg
+    assert "#12" not in commit_msg
+    assert "#15" not in commit_msg
+    assert "Update macros" in commit_msg
+
+
+def test_generate_commit_message_generate_keeps_closes_ref() -> None:
+    """Generate mode should keep Closes #N (it's the correct issue link)."""
+    from unittest.mock import MagicMock
+    from gxy_tool_bot.generator import generate_commit_message
+    from gxy_tool_bot.api_client import ChatResponse
+
+    mock_client = MagicMock()
+    mock_client.chat.return_value = ChatResponse(
+        content='{"commit_message": "Add sdust wrapper Closes #9", "pr_body": "Generated sdust."}',
+        tool_calls=None,
+        finish_reason="stop",
+    )
+
+    commit_msg, _ = generate_commit_message(
+        mock_client,
+        config=None,
+        context={
+            "mode": "generate",
+            "tool_name": "sdust",
+            "issue_or_pr_number": 9,
+            "summary": "Generated sdust tool wrapper",
+        },
+    )
+
+    assert "Closes #9" in commit_msg
+
+
 def test_validation_cp_in_command_fails() -> None:
     """Command using 'cp' should fail validation — should use 'mv' instead."""
     xml = b"""<?xml version="1.0"?>

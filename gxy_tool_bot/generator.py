@@ -479,6 +479,7 @@ def generate_commit_message(
             "The bot has just addressed review feedback and CI failures on an existing PR. "
             "Respond with a JSON object containing one key: "
             "\"commit_message\" (a single-line commit message, max 72 chars, summarizing what was fixed). "
+            "Do not include 'Closes #N' or any issue number references — the PR is already linked to its issue. "
             "Do not include any text outside the JSON object."
         )
         user_prompt = (
@@ -521,6 +522,8 @@ def generate_commit_message(
                 break
             parsed = json.loads(content)
             commit_message = parsed.get("commit_message", "").strip()
+            if mode == "feedback":
+                commit_message = re.sub(r'\s*(?:Closes|Fixes|Resolves)\s*#\d+', '', commit_message, flags=re.IGNORECASE).strip()
             pr_body = parsed.get("pr_body", "").strip()
             if not commit_message:
                 logger.warning("LLM returned JSON without commit_message (attempt %d/%d)", attempt + 1, max_attempts)
