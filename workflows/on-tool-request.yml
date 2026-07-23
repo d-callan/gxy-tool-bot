@@ -2,6 +2,10 @@ on:
   issues:
     types: [opened, labeled]
 
+concurrency:
+  group: gxy-plan
+  cancel-in-progress: false
+
 jobs:
   plan:
     if: |
