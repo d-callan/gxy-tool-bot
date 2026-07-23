@@ -21,6 +21,7 @@ Fix the issues identified in the feedback and CI failures. Use `write_file` to r
 
 - Read the existing files carefully before making changes. Use `read_file` to inspect any file you need to modify. Understand what's already there.
 - **Start fixing immediately.** Do not spend iterations on search_github, search_web, or fetch_url unless absolutely necessary. The feedback and existing files are your primary sources.
+- You have a limited number of turns. **Batch independent tool calls** — if you need to read multiple files, request all `read_file` calls in a single turn rather than one per turn.
 - Address each piece of feedback and each CI failure. If a comment is a suggestion (not a required change), use your judgment.
 - Keep changes minimal and focused. Don't rewrite the entire tool XML if only a macro is wrong.
 - Follow IUC conventions strictly: naming, macros, tests, help section, citations.

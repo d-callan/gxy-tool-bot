@@ -22,6 +22,7 @@ Then use the `write_file` tool function to produce each file. You must produce a
 ## Guidelines
 
 - **Start writing files early.** Do not spend all iterations researching — write the tool XML and macros.xml first, then refine. The plan should have most of what you need.
+- You have a limited number of turns. **Batch independent tool calls** — if you need to fetch multiple URLs or search multiple things, request all tool calls in a single turn rather than one per turn.
 - Follow the plan closely. If the plan says to use a specific CLI flag, use it.
 - Follow IUC conventions strictly: naming, macros, tests, help section, citations.
 - Use `write_file` for each file. The path must be relative (e.g. `my_tool.xml`, `macros.xml`, `test-data/sample.bam`).

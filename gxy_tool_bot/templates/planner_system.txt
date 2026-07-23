@@ -67,6 +67,7 @@ Consider whether the tool should be a single XML or a family of multiple XMLs in
 ## Guidelines
 
 - Use the provided lookup data first. Only call tool functions if you need more info.
+- You have a limited number of turns. **Batch independent tool calls** — if you need to search multiple things, request all tool calls in a single turn rather than one per turn.
 - Cite sources (URLs) for factual claims.
 - Be thorough about the CLI interface — list all relevant flags, inputs, outputs.
 - Follow IUC conventions for naming, macros usage, test structure, help section, citations.
