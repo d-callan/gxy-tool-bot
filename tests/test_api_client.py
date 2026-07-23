@@ -276,3 +276,40 @@ def test_chat_falls_back_on_connect_error() -> None:
             result = client.chat([{"role": "user", "content": "hi"}])
     assert result.content == "recovered"
     client.close()
+
+
+def test_chat_falls_back_on_502() -> None:
+    """Should retry with fallback model on 502 Bad Gateway."""
+    client = ApiClient("https://api.example.com", "test-key", "primary",
+                       read_timeout=30.0, fallback_models=["fallback-model"])
+    bad_resp = httpx.Response(
+        502,
+        content=b'{"error": "bad gateway"}',
+        request=httpx.Request("POST", "https://api.example.com/chat/completions"),
+    )
+    good_resp = _mock_response({
+        "choices": [{
+            "message": {"content": "recovered"},
+            "finish_reason": "stop",
+        }],
+    })
+    with patch.object(client._client, "post", side_effect=[bad_resp, good_resp]):
+        with patch("time.sleep"):
+            result = client.chat([{"role": "user", "content": "hi"}])
+    assert result.content == "recovered"
+    client.close()
+
+
+def test_chat_raises_on_non_transient_http_error() -> None:
+    """Should not retry on 401 (non-transient HTTP error)."""
+    client = ApiClient("https://api.example.com", "test-key", "primary",
+                       read_timeout=30.0, fallback_models=["fallback-model"])
+    error_resp = httpx.Response(
+        401,
+        content=b'{"error": "unauthorized"}',
+        request=httpx.Request("POST", "https://api.example.com/chat/completions"),
+    )
+    with patch.object(client._client, "post", return_value=error_resp):
+        with pytest.raises(httpx.HTTPStatusError):
+            client.chat([{"role": "user", "content": "hi"}])
+    client.close()

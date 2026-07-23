@@ -85,6 +85,15 @@ class ApiClient:
                     time.sleep(5)
                     continue
                 raise
+            except httpx.HTTPStatusError as e:
+                if resp.status_code in (502, 503, 504):
+                    logger.warning("API server error %d with model %s (attempt %d/%d): %s",
+                                   resp.status_code, model_used, attempt + 1, max_retries, e)
+                    if attempt < max_retries - 1:
+                        time.sleep(5)
+                        continue
+                    raise
+                raise
 
             try:
                 data = resp.json()
