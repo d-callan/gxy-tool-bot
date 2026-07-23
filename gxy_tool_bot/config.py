@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -42,7 +43,7 @@ class LabelConfig:
 class BotConfig:
     api: ApiConfig
     exemplars: list[ExemplarConfig]
-    repo: str
+    repo: str | None = None
     labels: LabelConfig = field(default_factory=LabelConfig)
     allowed_maintainers: list[str] | None = None
 
@@ -79,9 +80,12 @@ def load_config(path: Path) -> BotConfig:
         for e in exemplars_raw
     ]
 
-    repo = raw.get("repo")
+    repo = raw.get("repo") or os.environ.get("GITHUB_REPOSITORY")
     if not repo:
-        raise ValueError("Config missing required 'repo' field (e.g. 'owner/repo')")
+        raise ValueError(
+            "Config missing 'repo' field (e.g. 'owner/repo'). "
+            "Set it in .gxy-tool-bot.yml or run via GitHub Actions (GITHUB_REPOSITORY env var)."
+        )
 
     labels_raw = raw.get("labels", {})
     labels = LabelConfig(

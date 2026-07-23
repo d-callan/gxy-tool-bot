@@ -101,12 +101,29 @@ def test_load_config_missing_exemplars(tmp_path: Path) -> None:
         load_config(path)
 
 
-def test_load_config_missing_repo(tmp_path: Path) -> None:
+def test_load_config_missing_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     data = _valid_config()
     del data["repo"]
     path = _write_config(tmp_path, data)
+    monkeypatch.delenv("GITHUB_REPOSITORY", raising=False)
     with pytest.raises(ValueError, match="repo"):
         load_config(path)
+
+
+def test_load_config_repo_from_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    data = _valid_config()
+    del data["repo"]
+    path = _write_config(tmp_path, data)
+    monkeypatch.setenv("GITHUB_REPOSITORY", "env-owner/env-repo")
+    config = load_config(path)
+    assert config.repo == "env-owner/env-repo"
+
+
+def test_load_config_repo_from_config_overrides_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    path = _write_config(tmp_path, _valid_config())
+    monkeypatch.setenv("GITHUB_REPOSITORY", "env-owner/env-repo")
+    config = load_config(path)
+    assert config.repo == "owner/repo"
 
 
 def test_load_config_custom_labels(tmp_path: Path) -> None:
