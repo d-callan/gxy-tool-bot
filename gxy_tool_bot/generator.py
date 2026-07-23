@@ -522,8 +522,15 @@ def generate_commit_message(
                 break
             parsed = json.loads(content)
             commit_message = parsed.get("commit_message", "").strip()
-            if mode == "feedback":
+            if mode == "feedback" and re.search(r'#\d+', commit_message):
+                logger.warning("LLM commit message for feedback contains #N reference (attempt %d/%d): %s", attempt + 1, max_attempts, commit_message)
+                if attempt < max_attempts - 1:
+                    messages.append({"role": "assistant", "content": content})
+                    messages.append({"role": "user", "content": "The commit message contains \"#N\" references (e.g. #8). These get auto-linked to wrong issues by GitHub. Please respond again with a commit message that does NOT contain any \"#\" followed by a number."})
+                    continue
                 commit_message = re.sub(r'\s*(?:Closes|Fixes|Resolves)\s*#\d+', '', commit_message, flags=re.IGNORECASE).strip()
+                commit_message = re.sub(r'#\d+', '', commit_message).strip()
+                commit_message = re.sub(r'\s{2,}', ' ', commit_message).strip()
             pr_body = parsed.get("pr_body", "").strip()
             if not commit_message:
                 logger.warning("LLM returned JSON without commit_message (attempt %d/%d)", attempt + 1, max_attempts)

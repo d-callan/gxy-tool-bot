@@ -741,14 +741,72 @@ def test_generate_commit_message_retries_on_empty_content() -> None:
 
 
 def test_generate_commit_message_feedback_strips_closes_ref() -> None:
-    """Feedback commit messages should not contain Closes #N references."""
+    """Feedback commit messages with #N should trigger LLM retry, then strip as fallback."""
+    from unittest.mock import MagicMock
+    from gxy_tool_bot.generator import generate_commit_message
+    from gxy_tool_bot.api_client import ChatResponse
+
+    mock_client = MagicMock()
+    mock_client.chat.side_effect = [
+        ChatResponse(content='{"commit_message": "Fix test data Closes #8", "pr_body": ""}', tool_calls=None, finish_reason="stop"),
+        ChatResponse(content='{"commit_message": "Fix test data", "pr_body": ""}', tool_calls=None, finish_reason="stop"),
+    ]
+
+    commit_msg, _ = generate_commit_message(
+        mock_client,
+        config=None,
+        context={
+            "mode": "feedback",
+            "tool_name": "sdust",
+            "issue_or_pr_number": 19,
+            "summary": "Fixed test data issues",
+        },
+    )
+
+    assert "#8" not in commit_msg
+    assert "Closes" not in commit_msg
+    assert "Fix test data" in commit_msg
+    assert mock_client.chat.call_count == 2
+
+
+def test_generate_commit_message_feedback_strips_bare_issue_ref() -> None:
+    """Feedback commit messages with bare #N (e.g. test IDs) should trigger LLM retry."""
+    from unittest.mock import MagicMock
+    from gxy_tool_bot.generator import generate_commit_message
+    from gxy_tool_bot.api_client import ChatResponse
+
+    mock_client = MagicMock()
+    mock_client.chat.side_effect = [
+        ChatResponse(content='{"commit_message": "Test add miRge3 #8 failure fixed: drop_read_counts now outputs correct columns", "pr_body": ""}', tool_calls=None, finish_reason="stop"),
+        ChatResponse(content='{"commit_message": "Test add miRge3 failure fixed: drop_read_counts now outputs correct columns", "pr_body": ""}', tool_calls=None, finish_reason="stop"),
+    ]
+
+    commit_msg, _ = generate_commit_message(
+        mock_client,
+        config=None,
+        context={
+            "mode": "feedback",
+            "tool_name": "mirge3",
+            "issue_or_pr_number": 19,
+            "summary": "Fixed test failure",
+        },
+    )
+
+    assert "#8" not in commit_msg
+    assert "miRge3" in commit_msg
+    assert "drop_read_counts" in commit_msg
+    assert mock_client.chat.call_count == 2
+
+
+def test_generate_commit_message_feedback_fallback_strip_on_last_attempt() -> None:
+    """If LLM keeps including #N on all attempts, strip as fallback on the last try."""
     from unittest.mock import MagicMock
     from gxy_tool_bot.generator import generate_commit_message
     from gxy_tool_bot.api_client import ChatResponse
 
     mock_client = MagicMock()
     mock_client.chat.return_value = ChatResponse(
-        content='{"commit_message": "Fix test data Closes #8", "pr_body": ""}',
+        content='{"commit_message": "Fix data Closes #8", "pr_body": ""}',
         tool_calls=None,
         finish_reason="stop",
     )
@@ -764,40 +822,10 @@ def test_generate_commit_message_feedback_strips_closes_ref() -> None:
         },
     )
 
-    assert "Closes" not in commit_msg
     assert "#8" not in commit_msg
-    assert "Fix test data" in commit_msg
-
-
-def test_generate_commit_message_feedback_strips_fixes_ref() -> None:
-    """Feedback commit messages should strip Fixes/Resolves #N too."""
-    from unittest.mock import MagicMock
-    from gxy_tool_bot.generator import generate_commit_message
-    from gxy_tool_bot.api_client import ChatResponse
-
-    mock_client = MagicMock()
-    mock_client.chat.return_value = ChatResponse(
-        content='{"commit_message": "Update macros Fixes #12 and Resolves #15", "pr_body": ""}',
-        tool_calls=None,
-        finish_reason="stop",
-    )
-
-    commit_msg, _ = generate_commit_message(
-        mock_client,
-        config=None,
-        context={
-            "mode": "feedback",
-            "tool_name": "sdust",
-            "issue_or_pr_number": 19,
-            "summary": "Fixed issues",
-        },
-    )
-
-    assert "Fixes" not in commit_msg
-    assert "Resolves" not in commit_msg
-    assert "#12" not in commit_msg
-    assert "#15" not in commit_msg
-    assert "Update macros" in commit_msg
+    assert "Closes" not in commit_msg
+    assert "Fix data" in commit_msg
+    assert mock_client.chat.call_count == 3
 
 
 def test_generate_commit_message_generate_keeps_closes_ref() -> None:
