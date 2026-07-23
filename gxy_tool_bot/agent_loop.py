@@ -85,6 +85,17 @@ def run_agent_loop(
         iterations = iteration
         logger.info("Agent iteration %d/%d", iteration, max_iterations)
 
+        if iteration == max_iterations - 3 and max_iterations >= 10:
+            messages.append({
+                "role": "user",
+                "content": (
+                    f"You have {max_iterations - iteration + 1} iterations remaining. "
+                    "If you have not already started writing files, stop researching now "
+                    "and use write_file to create all remaining tool files. "
+                    "You do not need to investigate further — use what you already know."
+                ),
+            })
+
         response: ChatResponse = client.chat(
             messages=messages,
             tools=tool_schemas if tool_schemas else None,

@@ -16,6 +16,9 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
+      - name: Restore config from main
+        run: |
+          git checkout origin/main -- .gxy-tool-bot.yml
       - name: Post status comment
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
