@@ -18,7 +18,8 @@ jobs:
           fetch-depth: 0
       - name: Restore config from main
         run: |
-          git checkout origin/main -- .gxy-tool-bot.yml
+          git fetch origin main
+          git checkout FETCH_HEAD -- .gxy-tool-bot.yml
       - name: Post status comment
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
