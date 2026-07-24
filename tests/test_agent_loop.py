@@ -9,6 +9,7 @@ from gxy_tool_bot.agent_loop import (
     AgentResult,
     ToolDefinition,
     _compute_context_size,
+    _prune_previous_writes,
     run_agent_loop,
 )
 from gxy_tool_bot.api_client import ChatResponse, ToolCall
@@ -344,3 +345,149 @@ def test_context_summarization_idempotent() -> None:
     # After that, context should be small enough to not trigger again.
     # If it does trigger again, the already-summarized ones are skipped.
     assert summary_call_count[0] <= 2, f"Expected at most 2 summarization calls, got {summary_call_count[0]}"
+
+
+def test_prune_previous_writes_replaces_old_content() -> None:
+    """_prune_previous_writes should replace old write_file arguments with a placeholder."""
+    import json
+    messages = [
+        {"role": "assistant", "content": "", "tool_calls": [
+            {"id": "call_1", "type": "function", "function": {
+                "name": "write_file",
+                "arguments": json.dumps({"path": "tool.xml", "content": "<tool>" + "x" * 5000 + "</tool>"}),
+            }},
+        ]},
+        {"role": "tool", "tool_call_id": "call_1", "content": "Wrote file tool.xml (5009 bytes)"},
+        {"role": "assistant", "content": "", "tool_calls": [
+            {"id": "call_2", "type": "function", "function": {
+                "name": "write_file",
+                "arguments": json.dumps({"path": "tool.xml", "content": "<tool>" + "y" * 3000 + "</tool>"}),
+            }},
+        ]},
+        {"role": "tool", "tool_call_id": "call_2", "content": "Wrote file tool.xml (3009 bytes)"},
+    ]
+
+    _prune_previous_writes(messages, "tool.xml", "call_2")
+
+    # First write_file call should be pruned
+    old_args = json.loads(messages[0]["tool_calls"][0]["function"]["arguments"])
+    assert "content" not in old_args
+    assert old_args["path"] == "tool.xml"
+    assert "_note" in old_args
+
+    # First tool result should be replaced
+    assert "overwritten" in messages[1]["content"]
+
+    # Second write_file call should be untouched
+    new_args = json.loads(messages[2]["tool_calls"][0]["function"]["arguments"])
+    assert "content" in new_args
+    assert "y" * 100 in new_args["content"]
+
+
+def test_prune_previous_writes_different_paths_untouched() -> None:
+    """_prune_previous_writes should not touch writes to different paths."""
+    import json
+    messages = [
+        {"role": "assistant", "content": "", "tool_calls": [
+            {"id": "call_1", "type": "function", "function": {
+                "name": "write_file",
+                "arguments": json.dumps({"path": "other.xml", "content": "x" * 5000}),
+            }},
+        ]},
+        {"role": "tool", "tool_call_id": "call_1", "content": "Wrote file other.xml"},
+        {"role": "assistant", "content": "", "tool_calls": [
+            {"id": "call_2", "type": "function", "function": {
+                "name": "write_file",
+                "arguments": json.dumps({"path": "tool.xml", "content": "y" * 3000}),
+            }},
+        ]},
+        {"role": "tool", "tool_call_id": "call_2", "content": "Wrote file tool.xml"},
+    ]
+
+    _prune_previous_writes(messages, "tool.xml", "call_2")
+
+    # First write to other.xml should be untouched
+    old_args = json.loads(messages[0]["tool_calls"][0]["function"]["arguments"])
+    assert "content" in old_args
+    assert old_args["content"] == "x" * 5000
+
+
+def test_prune_previous_writes_compress_file() -> None:
+    """_prune_previous_writes should also handle compress_file calls."""
+    import json
+    messages = [
+        {"role": "assistant", "content": "", "tool_calls": [
+            {"id": "call_1", "type": "function", "function": {
+                "name": "compress_file",
+                "arguments": json.dumps({"path": "test-data/sample.fa", "dest": "test-data/sample.fa.gz"}),
+            }},
+        ]},
+        {"role": "tool", "tool_call_id": "call_1", "content": "Compressed test-data/sample.fa"},
+        {"role": "assistant", "content": "", "tool_calls": [
+            {"id": "call_2", "type": "function", "function": {
+                "name": "compress_file",
+                "arguments": json.dumps({"path": "test-data/sample.fa", "dest": "test-data/sample.fa.gz"}),
+            }},
+        ]},
+        {"role": "tool", "tool_call_id": "call_2", "content": "Compressed test-data/sample.fa"},
+    ]
+
+    _prune_previous_writes(messages, "test-data/sample.fa", "call_2")
+
+    old_args = json.loads(messages[0]["tool_calls"][0]["function"]["arguments"])
+    assert "dest" not in old_args
+    assert old_args["path"] == "test-data/sample.fa"
+
+
+def test_prune_fires_during_agent_loop() -> None:
+    """Writing the same file twice in run_agent_loop should prune the first write from context."""
+    import json
+    big_content_v1 = "x" * 8000
+    big_content_v2 = "y" * 6000
+
+    client = MagicMock()
+    client.chat.side_effect = [
+        ChatResponse(
+            content=None,
+            tool_calls=[_make_tool_call("call_1", "write_file", {"path": "tool.xml", "content": big_content_v1})],
+            finish_reason="tool_calls",
+        ),
+        ChatResponse(
+            content=None,
+            tool_calls=[_make_tool_call("call_2", "write_file", {"path": "tool.xml", "content": big_content_v2})],
+            finish_reason="tool_calls",
+        ),
+        ChatResponse(content="Done.", tool_calls=None, finish_reason="stop"),
+    ]
+
+    handler = MagicMock(side_effect=["Wrote file tool.xml", "Wrote file tool.xml"])
+    tools = [
+        ToolDefinition(name="write_file", description="write", parameters={"type": "object", "properties": {}}, handler=handler),
+    ]
+
+    result = run_agent_loop(
+        client=client,
+        system_prompt="sys",
+        user_prompt="user",
+        tools=tools,
+        max_iterations=5,
+    )
+
+    # Both calls should have executed with real content
+    assert handler.call_count == 2
+    assert handler.call_args_list[0].args[0]["content"] == big_content_v1
+    assert handler.call_args_list[1].args[0]["content"] == big_content_v2
+
+    # First write's args in message history should be pruned
+    assistant_msgs = [m for m in result.messages if m.get("role") == "assistant" and m.get("tool_calls")]
+    first_call_args = json.loads(assistant_msgs[0]["tool_calls"][0]["function"]["arguments"])
+    assert "content" not in first_call_args
+    assert first_call_args.get("_note") == "previous version overwritten"
+
+    # First write's tool result should note it was overwritten
+    tool_msgs = [m for m in result.messages if m.get("role") == "tool"]
+    assert "overwritten" in tool_msgs[0]["content"]
+
+    # Second write's args should still have full content
+    second_call_args = json.loads(assistant_msgs[1]["tool_calls"][0]["function"]["arguments"])
+    assert second_call_args["content"] == big_content_v2

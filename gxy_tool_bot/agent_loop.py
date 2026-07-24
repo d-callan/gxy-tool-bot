@@ -15,6 +15,43 @@ _TOOL_TIMEOUT_SECONDS = 120
 _SUMMARIZE_BATCH_SIZE = 10
 _SUMMARIZE_MIN_CHARS = 500
 _SUMMARIZE_KEEP_RECENT = 5
+# Tools whose arguments contain large file content that can be pruned when overwritten.
+_OVERWRITE_TOOLS = {"write_file", "compress_file"}
+
+
+def _prune_previous_writes(messages: list[dict], path: str, current_call_id: str) -> None:
+    """Replace content of previous write_file/compress_file calls to the same path.
+
+    When a file is rewritten, the old tool call arguments (which contain full file
+    content) are replaced with a placeholder to reduce context size. The tool result
+    is also replaced with a note.
+    """
+    for msg in messages:
+        if msg.get("role") != "assistant":
+            continue
+        for tc in msg.get("tool_calls", []):
+            func = tc.get("function", {})
+            if func.get("name") not in _OVERWRITE_TOOLS:
+                continue
+            if tc.get("id") == current_call_id:
+                continue
+            try:
+                args = json.loads(func.get("arguments", "{}"))
+            except json.JSONDecodeError:
+                continue
+            if args.get("path") != path:
+                continue
+            # Note: matching is on "path" only, not "dest". For compress_file this means
+            # compressing different sources to the same dest won't prune, but rewriting
+            # the same source will. This is intentional — path is the meaningful key.
+            old_size = len(func.get("arguments", ""))
+            func["arguments"] = json.dumps({"path": path, "_note": "previous version overwritten"})
+            call_id = tc.get("id")
+            for tool_msg in messages:
+                if tool_msg.get("role") == "tool" and tool_msg.get("tool_call_id") == call_id:
+                    tool_msg["content"] = f"[Previous write of {path} ({old_size} bytes) was overwritten.]"
+                    break
+            logger.debug("Pruned previous write of %s (saved ~%d chars)", path, old_size)
 
 
 def _run_tool_with_timeout(handler: Callable[[dict], str], args: dict, timeout: int = _TOOL_TIMEOUT_SECONDS) -> str:
@@ -237,6 +274,10 @@ def run_agent_loop(
                     "tool_call_id": tc.id,
                     "content": result,
                 })
+
+                # If this is a write tool, prune previous writes to the same path
+                if tc.name in _OVERWRITE_TOOLS and tc.arguments.get("path"):
+                    _prune_previous_writes(messages, tc.arguments["path"], tc.id)
 
                 # If the agent called give_up, terminate the loop immediately
                 if result.startswith("Gave up:"):
