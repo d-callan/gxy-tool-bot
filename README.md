@@ -37,18 +37,25 @@ Create `.gxy-tool-bot.yml` in the repo root:
 api:
   base_url: https://openrouter.ai/api/v1   # or https://api.openai.com/v1
   model: z-ai/glm-5.2                       # or gpt-4o, etc.
+  fallback_models:                          # optional; tried in order if primary fails
+    - deepseek-ai/deepseek-r1
+    - gpt-4o
   max_tool_iterations: 25
   temperature_plan: 0.4
   temperature_generate: 0.2
   max_context_chars: 100000
   max_validation_retries: 3
+  read_timeout: 600                         # seconds; increase for slow models
 
 exemplars:
   - url: https://raw.githubusercontent.com/galaxyproject/tools-iuc/main/tools/bcftools/bcftools_view.xml
     macros: https://raw.githubusercontent.com/galaxyproject/tools-iuc/main/tools/bcftools/macros.xml
+    shed_yml: https://raw.githubusercontent.com/galaxyproject/tools-iuc/main/tools/bcftools/.shed.yml
   - url: https://raw.githubusercontent.com/galaxyproject/tools-iuc/main/tools/seqtk/seqtk_seq.xml
     macros: https://raw.githubusercontent.com/galaxyproject/tools-iuc/main/tools/seqtk/macros.xml
+    shed_yml: https://raw.githubusercontent.com/galaxyproject/tools-iuc/main/tools/seqtk/.shed.yml
 
+# repo is optional — falls back to GITHUB_REPOSITORY env var (set automatically in GitHub Actions)
 repo: your-org/your-repo
 
 allowed_maintainers:
@@ -115,6 +122,28 @@ Make sure Actions are enabled: Settings → Actions → General → "Allow all a
 3. Check the Actions tab — the planning workflow should run
 4. After the plan is posted, add the `ready-to-implement` label
 5. The generation workflow should run and open a PR
+
+## Philosophy & Design Decisions
+
+### Run in GitHub Actions, not a black box
+
+The bot runs entirely in GitHub Actions. This keeps agent traces, plans, generated files, and CI results publicly inspectable. Every run produces logs and artifacts you can review after the fact — to diagnose why a specific tool was written a certain way, or to identify patterns to improve the bot. The Actions logs capture tool calls, context size per iteration, and validation results; combined with file-based artifacts (generated files, test data) and summary comments posted to issues and PRs, this provides enough transparency to understand what the bot did and why.
+
+### Validate files, don't over-prompt
+
+Best practices don't go in the system prompt — they go in a [validation loop](gxy_tool_bot/validation.py) that inspects generated files for common mistakes (missing test data, bare output labels, Cheetah in macros, etc.) and instructs the agent to fix them in a retry loop. This keeps prompts concise (every line costs tokens on every LLM call) and prevents unnecessary bloat that might distract or confuse the agent, while still catching errors structurally. See [DEVELOPMENT.md](DEVELOPMENT.md) for the full tiered guidance on where to put conventions.
+
+### Incremental feedback, not infinite loops
+
+The validation loop only runs a limited number of times before forcing the result back to human hands — a commit is pushed to a PR that a maintainer can review and provide further direction on. The maintainer adds the `address-feedback` label to trigger another loop with CI failures and review comments incorporated. This keeps the bot autonomous for the common case but avoids burning tokens indefinitely on a problem it can't solve alone.
+
+### Let planemo CI catch the rest
+
+Things planemo already checks (XML well-formedness, shed metadata, duplicated output labels) are deliberately not duplicated in validation. The CI workflow reports these failures and the feedback flow picks them up on the next iteration. Only add a validation check if the bot is consistently making a specific mistake that wastes tokens and maintainer time.
+
+### Give the agent a way out
+
+The agent has a `give_up` tool that lets it stop and explain why it can't proceed — open assumptions, unresolved questions, or fundamental issues with the request. A tool request might produce a recommendation not to make a tool rather than a plan to make one. A feedback request might result in push back with no commit until something the agent flags is resolved. This prevents forcing the agent into action when it doesn't have enough information, which would produce low-quality output. Better to surface the problem to a human than to generate a confident but wrong tool wrapper.
 
 ## Development
 
