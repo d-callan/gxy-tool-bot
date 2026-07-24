@@ -30,5 +30,6 @@ Fix the issues identified in the feedback and CI failures. Use `write_file` to r
 - Use `search_github` or `search_web` if you need to verify CLI usage or look up details.
 - Do NOT call `set_tool_dir` — the tool directory is already set.
 - Write files FIRST. Do not spend all iterations researching. Fix the issues and write the corrected files immediately.
+- **After you finish, planemo lint and planemo test will run independently in CI.** If either fails, you will be asked to fix the issues and try again. If `planemo_lint` and `planemo_test` tools are available, use them to self-check before finishing.
 {% include "_conventions.txt" %}
 

@@ -33,4 +33,5 @@ Then use the `write_file` tool function to produce each file. You must produce a
 - Include a `<help>` section with usage information.
 - Include at least one `<test>` case with test data.
 - If the tool needs macros, define them in `macros.xml` and import them in the tool XML.
+- **After you finish writing files, planemo lint and planemo test will run independently in CI.** If either fails, you will be asked to fix the issues and try again. If `planemo_lint` and `planemo_test` tools are available, use them to self-check before finishing.
 {% include "_conventions.txt" %}

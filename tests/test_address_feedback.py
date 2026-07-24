@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from gxy_tool_bot.address_feedback import FeedbackContext, _build_feedback_user_prompt, _collect_feedback, _summarize_test_json
+from gxy_tool_bot.address_feedback import FeedbackContext, _build_feedback_user_prompt, _collect_feedback
 from gxy_tool_bot.github_client import Comment
+from gxy_tool_bot.planemo_utils import summarize_test_json
 
 
 def _make_comment(body: str, author: str = "maintainer", cid: int = 1,
@@ -202,7 +203,7 @@ def test_prompt_no_artifact_section_when_empty() -> None:
 
 
 def test_summarize_test_json_extracts_failures() -> None:
-    """_summarize_test_json should extract only failed tests with useful fields."""
+    """summarize_test_json should extract only failed tests with useful fields."""
     raw = (
         '{"tests": ['
         '  {"id": "my_tool.test_toolbox.1", "data": {"status": "success"}},'
@@ -214,7 +215,7 @@ def test_summarize_test_json_extracts_failures() -> None:
         '  }}'
         '], "summary": {"num_tests": 2, "num_failures": 0, "num_errors": 1, "num_skips": 0}}'
     )
-    result = _summarize_test_json(raw)
+    result = summarize_test_json(raw)
     assert "my_tool.test_toolbox.2" in result
     assert "error" in result
     assert "Command not found" in result
@@ -225,19 +226,19 @@ def test_summarize_test_json_extracts_failures() -> None:
 
 
 def test_summarize_test_json_all_passed() -> None:
-    """_summarize_test_json should report all tests passed when no failures."""
+    """summarize_test_json should report all tests passed when no failures."""
     raw = (
         '{"tests": ['
         '  {"id": "my_tool.test_toolbox.1", "data": {"status": "success"}}'
         '], "summary": {"num_tests": 1, "num_failures": 0, "num_errors": 0, "num_skips": 0}}'
     )
-    result = _summarize_test_json(raw)
+    result = summarize_test_json(raw)
     assert "All 1 tests passed." in result
 
 
 def test_summarize_test_json_invalid_json() -> None:
-    """_summarize_test_json should return truncated raw on invalid JSON."""
-    result = _summarize_test_json("not json at all")
+    """summarize_test_json should return truncated raw on invalid JSON."""
+    result = summarize_test_json("not json at all")
     assert result == "not json at all"
 
 

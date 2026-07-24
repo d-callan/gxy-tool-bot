@@ -5,7 +5,7 @@ from __future__ import annotations
 import gzip
 from pathlib import Path
 
-from gxy_tool_bot.generator import GeneratedFile, FileWriter
+from gxy_tool_bot.generator import GeneratedFile, FileWriter, _build_tool_definitions
 from gxy_tool_bot.validation import ValidationResult, validate_generated_files
 
 
@@ -1042,3 +1042,140 @@ def test_delete_file_path_traversal(tmp_path: Path) -> None:
     result = fw.delete_file({"path": "../../etc/passwd"})
     assert "Error" in result
     assert "outside" in result
+
+
+def test_planemo_lint(tmp_path: Path) -> None:
+    """planemo_lint should run planemo lint and return output."""
+    from unittest.mock import patch, MagicMock
+    fw = FileWriter(tmp_path)
+    fw.write_file({"path": "test.xml", "content": "<tool/>"})
+
+    mock_result = MagicMock()
+    mock_result.stdout = "Linting tool test.xml\n.. WARNING (HelpInvalidRST): bad help\n"
+    mock_result.stderr = ""
+    mock_result.returncode = 1
+
+    with patch("subprocess.run", return_value=mock_result):
+        result = fw.planemo_lint({"path": "test.xml"})
+
+    assert "WARNING" in result
+    assert "HelpInvalidRST" in result
+
+
+def test_planemo_lint_path_traversal(tmp_path: Path) -> None:
+    """planemo_lint should reject paths outside output directory."""
+    fw = FileWriter(tmp_path)
+    result = fw.planemo_lint({"path": "../../etc/passwd"})
+    assert "Error" in result
+    assert "outside" in result
+
+
+def test_planemo_lint_missing_path(tmp_path: Path) -> None:
+    """planemo_lint should error if path doesn't exist."""
+    fw = FileWriter(tmp_path)
+    result = fw.planemo_lint({"path": "nonexistent.xml"})
+    assert "Error" in result
+    assert "does not exist" in result
+
+
+def test_planemo_lint_timeout(tmp_path: Path) -> None:
+    """planemo_lint should handle timeout gracefully."""
+    from unittest.mock import patch
+    import subprocess
+    fw = FileWriter(tmp_path)
+    fw.write_file({"path": "test.xml", "content": "<tool/>"})
+
+    with patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="planemo", timeout=120)):
+        result = fw.planemo_lint({"path": "test.xml"})
+
+    assert "Error" in result
+    assert "timed out" in result
+
+
+def test_planemo_test(tmp_path: Path) -> None:
+    """planemo_test should run planemo test and return summarized output."""
+    from unittest.mock import patch, MagicMock
+    import json as _json
+    fw = FileWriter(tmp_path)
+    fw.write_file({"path": "test.xml", "content": "<tool/>"})
+
+    test_json = _json.dumps({
+        "tests": [
+            {"id": "test.1", "data": {"status": "success"}},
+            {"id": "test.2", "data": {"status": "error", "execution_problem": "Command not found"}},
+        ],
+        "summary": {"num_tests": 2, "num_errors": 1},
+    })
+
+    mock_result = MagicMock()
+    mock_result.stdout = ""
+    mock_result.stderr = ""
+    mock_result.returncode = 1
+
+    def _mock_run(*args, **kwargs):
+        # Write the JSON file that planemo test would produce
+        cmd = args[0] if args else kwargs.get("args", [])
+        json_path = cmd[3]  # ["planemo", "test", "--test_output_json", json_path, ...]
+        with open(json_path, "w") as f:
+            f.write(test_json)
+        return mock_result
+
+    with patch("subprocess.run", side_effect=_mock_run):
+        result = fw.planemo_test({"path": "test.xml"})
+
+    assert "test.2" in result
+    assert "error" in result
+    assert "Command not found" in result
+    assert "test.1" not in result
+
+
+def test_planemo_test_path_traversal(tmp_path: Path) -> None:
+    """planemo_test should reject paths outside output directory."""
+    fw = FileWriter(tmp_path)
+    result = fw.planemo_test({"path": "../../etc/passwd"})
+    assert "Error" in result
+    assert "outside" in result
+
+
+def test_planemo_test_missing_path(tmp_path: Path) -> None:
+    """planemo_test should error if path doesn't exist."""
+    fw = FileWriter(tmp_path)
+    result = fw.planemo_test({"path": "nonexistent.xml"})
+    assert "Error" in result
+    assert "does not exist" in result
+
+
+def test_planemo_test_timeout(tmp_path: Path) -> None:
+    """planemo_test should handle timeout gracefully."""
+    from unittest.mock import patch
+    import subprocess
+    fw = FileWriter(tmp_path)
+    fw.write_file({"path": "test.xml", "content": "<tool/>"})
+
+    with patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="planemo", timeout=300)):
+        result = fw.planemo_test({"path": "test.xml"})
+
+    assert "Error" in result
+    assert "timed out" in result
+
+
+def test_planemo_tools_not_added_when_not_installed(tmp_path: Path) -> None:
+    """_build_tool_definitions should not add planemo tools when planemo is not installed."""
+    from unittest.mock import patch
+    fw = FileWriter(tmp_path)
+    with patch("gxy_tool_bot.generator.shutil.which", return_value=None):
+        tools = _build_tool_definitions(fw)
+    tool_names = [t.name for t in tools]
+    assert "planemo_lint" not in tool_names
+    assert "planemo_test" not in tool_names
+
+
+def test_planemo_tools_added_when_installed(tmp_path: Path) -> None:
+    """_build_tool_definitions should add planemo tools when planemo is installed."""
+    from unittest.mock import patch
+    fw = FileWriter(tmp_path)
+    with patch("gxy_tool_bot.generator.shutil.which", return_value="/usr/local/bin/planemo"):
+        tools = _build_tool_definitions(fw)
+    tool_names = [t.name for t in tools]
+    assert "planemo_lint" in tool_names
+    assert "planemo_test" in tool_names

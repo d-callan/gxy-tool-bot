@@ -6,6 +6,9 @@ import json
 import logging
 import os
 import re
+import shutil
+import subprocess
+import tempfile
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
@@ -18,6 +21,7 @@ from gxy_tool_bot.lookups.biotools import search_bio_tools
 from gxy_tool_bot.lookups.fetch import download_file, fetch_url
 from gxy_tool_bot.lookups.github import search_github
 from gxy_tool_bot.lookups.web import search_web
+from gxy_tool_bot.planemo_utils import summarize_test_json
 
 logger = logging.getLogger(__name__)
 
@@ -232,6 +236,77 @@ class FileWriter:
         logger.info("delete_file: %s", path)
         return f"File deleted: {path}"
 
+    def planemo_lint(self, args: dict) -> str:
+        """Run planemo lint on a file or directory within the output directory."""
+        path = args.get("path", "")
+        if not path:
+            return "Error: path is required"
+
+        target = (self.output_dir / path).resolve()
+        if not target.is_relative_to(self.output_dir.resolve()):
+            return f"Error: path '{path}' is outside the output directory"
+        if not target.exists():
+            return f"Error: path '{path}' does not exist"
+
+        try:
+            result = subprocess.run(
+                ["planemo", "lint", str(target)],
+                capture_output=True, text=True, timeout=120,
+            )
+            output = result.stdout + result.stderr
+            if len(output) > 10000:
+                output = output[:10000] + "\n... [truncated]\n"
+            logger.info("planemo_lint: %s (exit %d)", path, result.returncode)
+            return output or "No output from planemo lint."
+        except subprocess.TimeoutExpired:
+            return "Error: planemo lint timed out after 120s"
+        except FileNotFoundError:
+            return "Error: planemo is not installed"
+        except Exception as e:
+            return f"Error: {e}"
+
+    def planemo_test(self, args: dict) -> str:
+        """Run planemo test on a tool XML or directory within the output directory."""
+        path = args.get("path", "")
+        if not path:
+            return "Error: path is required"
+
+        target = (self.output_dir / path).resolve()
+        if not target.is_relative_to(self.output_dir.resolve()):
+            return f"Error: path '{path}' is outside the output directory"
+        if not target.exists():
+            return f"Error: path '{path}' does not exist"
+
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tmp:
+            json_path = tmp.name
+
+        try:
+            result = subprocess.run(
+                ["planemo", "test", "--test_output_json", json_path, str(target)],
+                capture_output=True, text=True, timeout=300,
+            )
+            try:
+                with open(json_path) as f:
+                    raw = f.read()
+                output = summarize_test_json(raw)
+            except (FileNotFoundError, OSError):
+                output = result.stdout + result.stderr
+            if len(output) > 10000:
+                output = output[:10000] + "\n... [truncated]\n"
+            logger.info("planemo_test: %s (exit %d)", path, result.returncode)
+            return output or "No output from planemo test."
+        except subprocess.TimeoutExpired:
+            return "Error: planemo test timed out after 300s"
+        except FileNotFoundError:
+            return "Error: planemo is not installed"
+        except Exception as e:
+            return f"Error: {e}"
+        finally:
+            try:
+                os.unlink(json_path)
+            except OSError:
+                pass
+
     def compress_file(self, args: dict) -> str:
         """Gzip-compress an existing file in the output directory.
 
@@ -282,7 +357,7 @@ class FileWriter:
 
 def _build_tool_definitions(file_writer: FileWriter) -> list[ToolDefinition]:
     """Build tool function definitions for the generator agent."""
-    return [
+    tools = [
         ToolDefinition(
             name="set_tool_dir",
             description=(
@@ -452,6 +527,41 @@ def _build_tool_definitions(file_writer: FileWriter) -> list[ToolDefinition]:
             handler=lambda args: _format_bio_tools_results(search_bio_tools(args["query"])),
         ),
     ]
+
+    if shutil.which("planemo"):
+        tools.append(ToolDefinition(
+            name="planemo_lint",
+            description=(
+                "Run planemo lint on a file or directory within the output directory. "
+                "Returns lint warnings and errors. Use this to catch issues before CI."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Relative path to lint (file or directory), e.g. 'my_tool.xml' or '.'"},
+                },
+                "required": ["path"],
+            },
+            handler=file_writer.planemo_lint,
+        ))
+        tools.append(ToolDefinition(
+            name="planemo_test",
+            description=(
+                "Run planemo test on a tool XML or directory within the output directory. "
+                "Returns a summary of test failures. Use this to verify tests pass before CI. "
+                "Note: tests may take several minutes to run."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Relative path to test (tool XML or directory), e.g. 'my_tool.xml' or '.'"},
+                },
+                "required": ["path"],
+            },
+            handler=file_writer.planemo_test,
+        ))
+
+    return tools
 
 
 def _format_github(info) -> str:
