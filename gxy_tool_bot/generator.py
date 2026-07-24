@@ -543,6 +543,7 @@ def _build_tool_definitions(file_writer: FileWriter) -> list[ToolDefinition]:
                 "required": ["path"],
             },
             handler=file_writer.planemo_lint,
+            timeout=180,
         ))
         tools.append(ToolDefinition(
             name="planemo_test",
@@ -559,6 +560,7 @@ def _build_tool_definitions(file_writer: FileWriter) -> list[ToolDefinition]:
                 "required": ["path"],
             },
             handler=file_writer.planemo_test,
+            timeout=300,
         ))
 
     return tools

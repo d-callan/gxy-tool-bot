@@ -36,6 +36,7 @@ class ToolDefinition:
     description: str
     parameters: dict  # JSON schema for parameters
     handler: Callable[[dict], str]  # function that executes the tool call
+    timeout: int | None = None  # override default tool timeout (seconds)
 
 
 @dataclass
@@ -220,7 +221,7 @@ def run_agent_loop(
                     logger.warning(result)
                 else:
                     try:
-                        result = _run_tool_with_timeout(tool_def.handler, tc.arguments)
+                        result = _run_tool_with_timeout(tool_def.handler, tc.arguments, timeout=tool_def.timeout or _TOOL_TIMEOUT_SECONDS)
                     except Exception as e:
                         result = f"Error: {e}"
                         logger.warning("Tool %s raised: %s", tc.name, e)

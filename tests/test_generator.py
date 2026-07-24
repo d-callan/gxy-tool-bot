@@ -1179,3 +1179,7 @@ def test_planemo_tools_added_when_installed(tmp_path: Path) -> None:
     tool_names = [t.name for t in tools]
     assert "planemo_lint" in tool_names
     assert "planemo_test" in tool_names
+    lint_tool = next(t for t in tools if t.name == "planemo_lint")
+    test_tool = next(t for t in tools if t.name == "planemo_test")
+    assert lint_tool.timeout == 180
+    assert test_tool.timeout == 300
