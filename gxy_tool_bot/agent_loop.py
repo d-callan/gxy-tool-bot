@@ -208,14 +208,17 @@ def run_agent_loop(
     final_content = ""
     terminated_naturally = False
     summarized_ids: set[str] = set()
+    last_summarized_chars: int = 0
 
     for iteration in range(1, max_iterations + 1):
         iterations = iteration
         total_chars = _compute_context_size(messages)
         logger.info("Agent iteration %d/%d (context: %d chars, ~%d tokens)", iteration, max_iterations, total_chars, total_chars // 4)
 
-        if total_chars > max_context_chars:
-            _summarize_old_tool_results(client, messages, summarized_ids, max_context_chars)
+        if total_chars > max_context_chars and total_chars > last_summarized_chars * 1.25:
+            summarized = _summarize_old_tool_results(client, messages, summarized_ids, max_context_chars)
+            if summarized > 0:
+                last_summarized_chars = _compute_context_size(messages)
 
         if iteration == max_iterations - 3 and max_iterations >= 10:
             messages.append({

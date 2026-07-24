@@ -491,3 +491,64 @@ def test_prune_fires_during_agent_loop() -> None:
     # Second write's args should still have full content
     second_call_args = json.loads(assistant_msgs[1]["tool_calls"][0]["function"]["arguments"])
     assert second_call_args["content"] == big_content_v2
+
+
+def test_summarization_hysteresis(monkeypatch) -> None:
+    """Summarization should not re-trigger every iteration once context is above threshold.
+
+    After summarization reduces context, subsequent iterations that add small amounts
+    of content should NOT re-trigger summarization until context grows 25% beyond the
+    post-summarization size.
+    """
+    summarize_calls = 0
+
+    def fake_summarize(client, messages, summarized_ids, max_context_chars):
+        nonlocal summarize_calls
+        summarize_calls += 1
+        # Simulate summarization: truncate all tool results to 50 chars
+        for msg in messages:
+            if msg.get("role") == "tool" and len(msg.get("content", "")) > 50:
+                msg["content"] = msg["content"][:50] + "[summarized]"
+                summarized_ids.add(msg.get("tool_call_id"))
+        return 1  # pretend we summarized something
+
+    monkeypatch.setattr("gxy_tool_bot.agent_loop._summarize_old_tool_results", fake_summarize)
+
+    # Tool returns small content each time so context grows slowly after summarization
+    handler = MagicMock(return_value="small result")
+
+    tools = [
+        ToolDefinition(
+            name="search",
+            description="search",
+            parameters={"type": "object", "properties": {}},
+            handler=handler,
+        ),
+    ]
+
+    # Each iteration: tool call then eventually a final response
+    responses = []
+    for i in range(6):
+        responses.append(ChatResponse(
+            content=None,
+            tool_calls=[_make_tool_call(f"call_{i}", "search", {"q": f"q{i}"})],
+            finish_reason="tool_calls",
+        ))
+    responses.append(ChatResponse(content="done", tool_calls=None, finish_reason="stop"))
+
+    client = MagicMock()
+    client.chat.side_effect = responses
+
+    # Set a large initial user prompt so context starts above threshold
+    big_prompt = "x" * 600
+    result = run_agent_loop(
+        client=client,
+        system_prompt="sys",
+        user_prompt=big_prompt,
+        tools=tools,
+        max_iterations=7,
+        max_context_chars=500,
+    )
+
+    # Summarization should have been called at most once or twice, not 6 times
+    assert summarize_calls <= 2, f"Expected at most 2 summarization calls, got {summarize_calls}"
