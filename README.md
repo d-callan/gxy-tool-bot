@@ -148,6 +148,16 @@ Things planemo already checks (XML well-formedness, shed metadata, duplicated ou
 
 The agent has a `give_up` tool that lets it stop and explain why it can't proceed — open assumptions, unresolved questions, or fundamental issues with the request. A tool request might produce a recommendation not to make a tool rather than a plan to make one. A feedback request might result in push back with no commit until something the agent flags is resolved. This prevents forcing the agent into action when it doesn't have enough information, which would produce low-quality output. Better to surface the problem to a human than to generate a confident but wrong tool wrapper.
 
+## Tips & Tricks
+
+The bot is automated but not magic. It implements what's requested — it doesn't "think" about whether a request makes sense. If a request is vague or contradictory, the bot may realize it needs to `give_up` and instead iterate on a wrong path and/or produce nonsense. The more detail you provide upfront, the better the results.
+
+- **Edit the plans it generates.** The plan is your chance to course-correct before any code is written. Refine inputs, outputs, and parameters before adding the `ready-to-implement` label.
+- **Give detailed review feedback.** Instead of "this is wrong", explain what's wrong and how to fix it. The bot follows instructions literally.
+- **Resolve comments you don't need addressed.** During feedback loops, the bot sees all unresolved review comments. Stale comments it no longer needs to act on will confuse and distract it. Resolve them so the bot can focus on what still matters.
+- **Help it with test failures.** Look at the CI failures yourself and tell the bot specifically how to fix them in a PR comment. The bot can struggle with planemo test failures that require domain knowledge or environment-specific context.
+- **CI failures not uploaded as artifacts are invisible to the bot.** The feedback flow reads CI failure details from GitHub Actions artifacts. If a failure isn't uploaded as an artifact (e.g. a missing dependency, a runner error), the bot can't see it — you need to describe it in a PR comment explicitly.
+
 ## Development
 
 See [DEVELOPMENT.md](DEVELOPMENT.md) for guidance on the codebase structure, where to add new conventions (prompts vs. validation vs. let CI catch it), and how the generation and feedback flows are organized.
