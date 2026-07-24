@@ -100,6 +100,16 @@ def _collect_feedback(gh: GitHubClient, pr_number: int, tool_dir: Path) -> Feedb
     pr_comments = gh.get_pr_comments(pr_number)
     review_comments = gh.get_pr_review_comments(pr_number)
 
+    # Filter out resolved review comments
+    try:
+        resolved_ids = gh.get_resolved_review_comment_ids(pr_number)
+        if resolved_ids:
+            before = len(review_comments)
+            review_comments = [c for c in review_comments if c.id not in resolved_ids]
+            logger.info("Filtered %d resolved review comments (%d remaining)", before - len(review_comments), len(review_comments))
+    except Exception:
+        logger.warning("Failed to fetch resolved review threads, including all comments", exc_info=True)
+
     all_checks = gh.get_pr_check_runs(pr_number)
     failed_checks = [c for c in all_checks if c.get("conclusion") not in ("success", None, "")]
 

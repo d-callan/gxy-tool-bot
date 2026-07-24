@@ -160,6 +160,58 @@ class GitHubClient:
             return comments
         return retry(_do)
 
+    def _graphql(self, query: str, variables: dict) -> dict:
+        """Execute a GraphQL query against the GitHub API."""
+        def _do() -> dict:
+            resp = self._client.post(
+                "https://api.github.com/graphql",
+                json={"query": query, "variables": variables},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            if data.get("errors"):
+                raise RuntimeError(f"GraphQL errors: {data['errors']}")
+            return data.get("data", {})
+        return retry(_do)
+
+    def get_resolved_review_comment_ids(self, pr_number: int) -> set[int]:
+        """Fetch IDs of review comments that belong to resolved threads via GraphQL."""
+        owner, name = self.repo.split("/")
+        query = """
+        query($owner: String!, $name: String!, $number: Int!, $after: String) {
+          repository(owner: $owner, name: $name) {
+            pullRequest(number: $number) {
+              reviewThreads(first: 100, after: $after) {
+                pageInfo { hasNextPage endCursor }
+                nodes {
+                  isResolved
+                  comments(first: 100) {
+                    nodes { databaseId }
+                  }
+                }
+              }
+            }
+          }
+        }
+        """
+        resolved_ids: set[int] = set()
+        after = None
+        while True:
+            data = self._graphql(query, {
+                "owner": owner, "name": name, "number": pr_number, "after": after,
+            })
+            threads = data["repository"]["pullRequest"]["reviewThreads"]
+            for thread in threads["nodes"]:
+                if thread["isResolved"]:
+                    for comment in thread["comments"]["nodes"]:
+                        db_id = comment.get("databaseId")
+                        if db_id is not None:
+                            resolved_ids.add(db_id)
+            if not threads["pageInfo"]["hasNextPage"]:
+                break
+            after = threads["pageInfo"]["endCursor"]
+        return resolved_ids
+
     def get_pr_check_runs(self, pr_number: int) -> list[dict]:
         """Fetch check run results for a PR's head SHA."""
         def _do() -> list[dict]:

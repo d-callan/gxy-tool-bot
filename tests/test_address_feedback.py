@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from gxy_tool_bot.address_feedback import FeedbackContext, _build_feedback_user_prompt, _summarize_test_json
+from gxy_tool_bot.address_feedback import FeedbackContext, _build_feedback_user_prompt, _collect_feedback, _summarize_test_json
 from gxy_tool_bot.github_client import Comment
 
 
@@ -239,3 +239,43 @@ def test_summarize_test_json_invalid_json() -> None:
     """_summarize_test_json should return truncated raw on invalid JSON."""
     result = _summarize_test_json("not json at all")
     assert result == "not json at all"
+
+
+def test_collect_feedback_filters_resolved_comments(tmp_path) -> None:
+    """_collect_feedback should filter out resolved review comments."""
+    from unittest.mock import MagicMock
+
+    gh = MagicMock()
+    gh.get_pr_comments.return_value = []
+    gh.get_pr_review_comments.return_value = [
+        _make_comment("Fix this", "alice", cid=101),
+        _make_comment("Also fix that", "bob", cid=102),
+        _make_comment("Already addressed", "carol", cid=103),
+    ]
+    gh.get_resolved_review_comment_ids.return_value = {103}
+    gh.get_pr_check_runs.return_value = []
+    gh.get_pr_artifacts.return_value = []
+
+    ctx = _collect_feedback(gh, 1, tmp_path)
+    comment_ids = [c.id for c in ctx.review_comments]
+    assert 101 in comment_ids
+    assert 102 in comment_ids
+    assert 103 not in comment_ids
+
+
+def test_collect_feedback_includes_all_on_graphql_failure(tmp_path) -> None:
+    """_collect_feedback should include all comments if GraphQL call fails."""
+    from unittest.mock import MagicMock
+
+    gh = MagicMock()
+    gh.get_pr_comments.return_value = []
+    gh.get_pr_review_comments.return_value = [
+        _make_comment("Fix this", "alice", cid=101),
+        _make_comment("Already addressed", "carol", cid=103),
+    ]
+    gh.get_resolved_review_comment_ids.side_effect = RuntimeError("GraphQL error")
+    gh.get_pr_check_runs.return_value = []
+    gh.get_pr_artifacts.return_value = []
+
+    ctx = _collect_feedback(gh, 1, tmp_path)
+    assert len(ctx.review_comments) == 2
