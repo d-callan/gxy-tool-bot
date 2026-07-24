@@ -2,10 +2,6 @@ on:
   pull_request:
     types: [labeled]
 
-concurrency:
-  group: gxy-feedback
-  cancel-in-progress: false
-
 jobs:
   address-feedback:
     name: Address PR Feedback

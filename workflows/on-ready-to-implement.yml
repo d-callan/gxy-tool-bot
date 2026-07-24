@@ -2,10 +2,6 @@ on:
   issues:
     types: [labeled]
 
-concurrency:
-  group: gxy-generate
-  cancel-in-progress: false
-
 jobs:
   generate:
     name: Generate Tool Files
