@@ -150,7 +150,7 @@ The agent has a `give_up` tool that lets it stop and explain why it can't procee
 
 ## Tips & Tricks
 
-The bot is automated but not magic. It implements what's requested — it doesn't "think" about whether a request makes sense. If a request is vague or contradictory, the bot may realize it needs to `give_up` and instead iterate on a wrong path and/or produce nonsense. The more detail you provide upfront, the better the results.
+The bot is automated but not magic. It implements what's requested — it doesn't "think" about whether a request makes sense. If a request is vague or contradictory, the bot may not realize it needs to `give_up` and instead iterate on a wrong path and/or produce nonsense. The more detail you provide upfront, the better the results.
 
 - **Edit the plans it generates.** The plan is your chance to course-correct before any code is written. Refine inputs, outputs, and parameters before adding the `ready-to-implement` label.
 - **Give detailed review feedback.** Instead of "this is wrong", explain what's wrong and how to fix it. The bot follows instructions literally.
