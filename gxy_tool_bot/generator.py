@@ -65,7 +65,7 @@ class FileWriter:
         return f"Tool directory set to: {cleaned}"
 
     def read_file(self, args: dict) -> str:
-        """Read a file from the output directory and return its contents."""
+        """Read a file from the output directory with optional line range and pattern search."""
         path = args.get("path", "")
         if not path:
             return "Error: path is required"
@@ -80,6 +80,46 @@ class FileWriter:
             content = src.read_text(encoding="utf-8")
         except (UnicodeDecodeError, OSError):
             content = src.read_bytes().decode("utf-8", errors="replace")
+
+        lines = content.splitlines()
+        start_line = args.get("start_line")
+        end_line = args.get("end_line")
+        pattern = args.get("pattern")
+
+        if start_line is not None or end_line is not None:
+            start = max(1, int(start_line)) if start_line is not None else 1
+            end = min(len(lines), int(end_line)) if end_line is not None else len(lines)
+            if start > len(lines):
+                return f"Error: start_line {start} exceeds file length ({len(lines)} lines)"
+            selected = lines[start - 1:end]
+            if pattern:
+                try:
+                    regex = re.compile(pattern)
+                except re.error as e:
+                    return f"Error: invalid pattern: {e}"
+                matches = [
+                    f"{start + i}: {line}"
+                    for i, line in enumerate(selected)
+                    if regex.search(line)
+                ]
+                if not matches:
+                    return "No matches found."
+                return "\n".join(matches)
+            return "\n".join(f"{start + i}: {line}" for i, line in enumerate(selected))
+
+        if pattern:
+            try:
+                regex = re.compile(pattern)
+            except re.error as e:
+                return f"Error: invalid pattern: {e}"
+            matches = [
+                f"{i + 1}: {line}"
+                for i, line in enumerate(lines)
+                if regex.search(line)
+            ]
+            if not matches:
+                return "No matches found."
+            return "\n".join(matches)
 
         if len(content) > 50000:
             content = content[:50000] + "\n... [truncated]\n"
@@ -141,6 +181,56 @@ class FileWriter:
         dest.write_bytes(content_bytes)
         logger.info("write_file: %s (%d bytes)", path, len(content_bytes))
         return f"File written: {path}"
+
+    def move_file(self, args: dict) -> str:
+        """Move/rename a file within the output directory."""
+        src_path = args.get("src", "")
+        dest_path = args.get("dest", "")
+        if not src_path or not dest_path:
+            return "Error: both src and dest are required"
+        if dest_path == src_path:
+            return "Error: src and dest are the same"
+
+        src = (self.output_dir / src_path).resolve()
+        dest = (self.output_dir / dest_path).resolve()
+        output_resolved = self.output_dir.resolve()
+        if not src.is_relative_to(output_resolved):
+            return f"Error: src '{src_path}' is outside the output directory"
+        if not dest.is_relative_to(output_resolved):
+            return f"Error: dest '{dest_path}' is outside the output directory"
+        if not src.exists() or not src.is_file():
+            return f"Error: source file '{src_path}' does not exist"
+
+        content_bytes = src.read_bytes()
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(content_bytes)
+        src.unlink()
+
+        if src_path in self.files:
+            self.files[dest_path] = self.files.pop(src_path)
+        else:
+            self.files[dest_path] = content_bytes
+
+        logger.info("move_file: %s -> %s", src_path, dest_path)
+        return f"File moved: {src_path} -> {dest_path}"
+
+    def delete_file(self, args: dict) -> str:
+        """Delete a file from the output directory."""
+        path = args.get("path", "")
+        if not path:
+            return "Error: path is required"
+
+        src = (self.output_dir / path).resolve()
+        if not src.is_relative_to(self.output_dir.resolve()):
+            return f"Error: path '{path}' is outside the output directory"
+        if not src.exists() or not src.is_file():
+            return f"Error: file '{path}' does not exist"
+
+        src.unlink()
+        self.files.pop(path, None)
+
+        logger.info("delete_file: %s", path)
+        return f"File deleted: {path}"
 
     def compress_file(self, args: dict) -> str:
         """Gzip-compress an existing file in the output directory.
@@ -212,11 +302,20 @@ def _build_tool_definitions(file_writer: FileWriter) -> list[ToolDefinition]:
         ),
         ToolDefinition(
             name="read_file",
-            description="Read the contents of a file in the output directory. Use this to inspect existing files before modifying them.",
+            description=(
+                "Read the contents of a file in the output directory. "
+                "Use this to inspect existing files before modifying them. "
+                "Supports optional line range (start_line, end_line) and pattern search (regex). "
+                "If pattern is given, returns only matching lines with line numbers. "
+                "If start_line/end_line are given (without pattern), returns that slice with line numbers."
+            ),
             parameters={
                 "type": "object",
                 "properties": {
                     "path": {"type": "string", "description": "Relative path, e.g. 'macros.xml', 'test-data/sample.bam'"},
+                    "start_line": {"type": "integer", "description": "Start reading from this line (1-indexed). Optional."},
+                    "end_line": {"type": "integer", "description": "Stop reading at this line (inclusive). Optional."},
+                    "pattern": {"type": "string", "description": "Regex pattern to search for. Returns matching lines with line numbers. Optional."},
                 },
                 "required": ["path"],
             },
@@ -234,6 +333,31 @@ def _build_tool_definitions(file_writer: FileWriter) -> list[ToolDefinition]:
                 "required": ["path", "content"],
             },
             handler=file_writer.write_file,
+        ),
+        ToolDefinition(
+            name="move_file",
+            description="Move or rename a file within the output directory. Use this to fix incorrectly named files.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "src": {"type": "string", "description": "Current relative path"},
+                    "dest": {"type": "string", "description": "New relative path"},
+                },
+                "required": ["src", "dest"],
+            },
+            handler=file_writer.move_file,
+        ),
+        ToolDefinition(
+            name="delete_file",
+            description="Delete a file from the output directory. Use this to remove incorrectly named or obsolete files.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Relative path of file to delete"},
+                },
+                "required": ["path"],
+            },
+            handler=file_writer.delete_file,
         ),
         ToolDefinition(
             name="compress_file",

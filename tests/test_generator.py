@@ -918,3 +918,127 @@ def test_read_file_path_traversal(tmp_path: Path) -> None:
     result = fw.read_file({"path": "../../etc/passwd"})
     assert "Error" in result
     assert "outside" in result
+
+
+def test_read_file_line_range(tmp_path: Path) -> None:
+    """read_file with start_line/end_line should return that slice with line numbers."""
+    fw = FileWriter(tmp_path)
+    content = "\n".join(f"line {i}" for i in range(1, 11))
+    fw.write_file({"path": "test.xml", "content": content})
+    result = fw.read_file({"path": "test.xml", "start_line": 3, "end_line": 5})
+    assert "3: line 3" in result
+    assert "4: line 4" in result
+    assert "5: line 5" in result
+    assert "line 2" not in result
+    assert "line 6" not in result
+
+
+def test_read_file_pattern_search(tmp_path: Path) -> None:
+    """read_file with pattern should return only matching lines with line numbers."""
+    fw = FileWriter(tmp_path)
+    content = "<tool>\n  <param name=\"input\"/>\n  <param name=\"output\"/>\n</tool>"
+    fw.write_file({"path": "test.xml", "content": content})
+    result = fw.read_file({"path": "test.xml", "pattern": r"<param"})
+    assert "2:   <param name=\"input\"/>" in result
+    assert "3:   <param name=\"output\"/>" in result
+    assert "<tool>" not in result
+
+
+def test_read_file_pattern_with_range(tmp_path: Path) -> None:
+    """read_file with pattern + line range should search only within the range."""
+    fw = FileWriter(tmp_path)
+    content = "\n".join(f"line {i} <param>" if i % 2 == 0 else f"line {i}" for i in range(1, 11))
+    fw.write_file({"path": "test.xml", "content": content})
+    result = fw.read_file({"path": "test.xml", "start_line": 1, "end_line": 5, "pattern": r"<param"})
+    assert "2: line 2 <param>" in result
+    assert "4: line 4 <param>" in result
+    assert "line 6" not in result
+
+
+def test_read_file_pattern_no_matches(tmp_path: Path) -> None:
+    """read_file with pattern that matches nothing should return 'No matches found.'"""
+    fw = FileWriter(tmp_path)
+    fw.write_file({"path": "test.xml", "content": "<tool/>"})
+    result = fw.read_file({"path": "test.xml", "pattern": r"nonexistent"})
+    assert result == "No matches found."
+
+
+def test_read_file_invalid_pattern(tmp_path: Path) -> None:
+    """read_file with invalid regex should return an error."""
+    fw = FileWriter(tmp_path)
+    fw.write_file({"path": "test.xml", "content": "<tool/>"})
+    result = fw.read_file({"path": "test.xml", "pattern": r"[invalid"})
+    assert "Error" in result
+    assert "invalid pattern" in result
+
+
+def test_read_file_backward_compat(tmp_path: Path) -> None:
+    """read_file with only path should return full content (backward compat)."""
+    fw = FileWriter(tmp_path)
+    fw.write_file({"path": "test.xml", "content": "<tool/>"})
+    result = fw.read_file({"path": "test.xml"})
+    assert result == "<tool/>"
+
+
+def test_move_file(tmp_path: Path) -> None:
+    """move_file should rename a file on disk and in the files dict."""
+    fw = FileWriter(tmp_path)
+    fw.write_file({"path": "old_name.xml", "content": "<tool/>"})
+    result = fw.move_file({"src": "old_name.xml", "dest": "new_name.xml"})
+    assert "File moved" in result
+    assert "old_name.xml" not in fw.files
+    assert "new_name.xml" in fw.files
+    assert not (tmp_path / "old_name.xml").exists()
+    assert (tmp_path / "new_name.xml").exists()
+
+
+def test_move_file_missing_src(tmp_path: Path) -> None:
+    """move_file should error if source doesn't exist."""
+    fw = FileWriter(tmp_path)
+    result = fw.move_file({"src": "nonexistent.xml", "dest": "new.xml"})
+    assert "Error" in result
+    assert "does not exist" in result
+
+
+def test_move_file_path_traversal(tmp_path: Path) -> None:
+    """move_file should reject paths outside output directory."""
+    fw = FileWriter(tmp_path)
+    fw.write_file({"path": "test.xml", "content": "<tool/>"})
+    result = fw.move_file({"src": "test.xml", "dest": "../../etc/evil"})
+    assert "Error" in result
+    assert "outside" in result
+
+
+def test_move_file_same_src_dest(tmp_path: Path) -> None:
+    """move_file should error if src and dest are the same."""
+    fw = FileWriter(tmp_path)
+    fw.write_file({"path": "test.xml", "content": "<tool/>"})
+    result = fw.move_file({"src": "test.xml", "dest": "test.xml"})
+    assert "Error" in result
+    assert "same" in result
+
+
+def test_delete_file(tmp_path: Path) -> None:
+    """delete_file should remove a file from disk and the files dict."""
+    fw = FileWriter(tmp_path)
+    fw.write_file({"path": "test.xml", "content": "<tool/>"})
+    result = fw.delete_file({"path": "test.xml"})
+    assert "File deleted" in result
+    assert "test.xml" not in fw.files
+    assert not (tmp_path / "test.xml").exists()
+
+
+def test_delete_file_missing(tmp_path: Path) -> None:
+    """delete_file should error if file doesn't exist."""
+    fw = FileWriter(tmp_path)
+    result = fw.delete_file({"path": "nonexistent.xml"})
+    assert "Error" in result
+    assert "does not exist" in result
+
+
+def test_delete_file_path_traversal(tmp_path: Path) -> None:
+    """delete_file should reject paths outside output directory."""
+    fw = FileWriter(tmp_path)
+    result = fw.delete_file({"path": "../../etc/passwd"})
+    assert "Error" in result
+    assert "outside" in result

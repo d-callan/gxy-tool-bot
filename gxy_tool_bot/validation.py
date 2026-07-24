@@ -340,6 +340,7 @@ def run_agent_with_validation(
     temperature = config.api.temperature_generate
     max_iterations = config.api.max_tool_iterations
     max_validation_retries = config.api.max_validation_retries
+    max_context_chars = config.api.max_context_chars
 
     result = run_agent_loop(
         client=client,
@@ -348,6 +349,7 @@ def run_agent_with_validation(
         tools=tools,
         max_iterations=max_iterations,
         temperature=temperature,
+        max_context_chars=max_context_chars,
     )
 
     files = [
@@ -400,6 +402,7 @@ def run_agent_with_validation(
                     tools=tools,
                     max_iterations=max_iterations,
                     temperature=temperature,
+                    max_context_chars=max_context_chars,
                     messages=result.messages + [{"role": "user", "content": no_files_nudge}],
                 )
             else:
@@ -411,6 +414,7 @@ def run_agent_with_validation(
                     tools=tools,
                     max_iterations=max_iterations,
                     temperature=temperature,
+                    max_context_chars=max_context_chars,
                     messages=[
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt},
@@ -425,6 +429,7 @@ def run_agent_with_validation(
                 tools=tools,
                 max_iterations=max_iterations,
                 temperature=temperature,
+                max_context_chars=max_context_chars,
                 messages=result.messages + [{"role": "user", "content": error_msg}],
             )
 

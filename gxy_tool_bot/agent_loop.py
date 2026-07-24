@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass
 from typing import Callable
@@ -11,6 +12,9 @@ from gxy_tool_bot.api_client import ApiClient, ChatResponse
 logger = logging.getLogger(__name__)
 
 _TOOL_TIMEOUT_SECONDS = 120
+_SUMMARIZE_BATCH_SIZE = 10
+_SUMMARIZE_MIN_CHARS = 500
+_SUMMARIZE_KEEP_RECENT = 5
 
 
 def _run_tool_with_timeout(handler: Callable[[dict], str], args: dict, timeout: int = _TOOL_TIMEOUT_SECONDS) -> str:
@@ -43,6 +47,90 @@ class AgentResult:
     messages: list[dict] = None  # full conversation history for continuation
 
 
+def _compute_context_size(messages: list[dict]) -> int:
+    """Estimate total characters across all messages."""
+    total = 0
+    for msg in messages:
+        total += len(msg.get("content") or "")
+        for tc in msg.get("tool_calls", []):
+            total += len(tc.get("function", {}).get("arguments", ""))
+    return total
+
+
+def _summarize_old_tool_results(
+    client: ApiClient,
+    messages: list[dict],
+    summarized_ids: set[str],
+    max_context_chars: int,
+) -> int:
+    """Summarize old tool results via LLM to reduce context size.
+
+    Modifies messages in place. Returns number of tool results summarized.
+    """
+    keep_recent = _SUMMARIZE_KEEP_RECENT
+    tool_indices = [
+        i for i, msg in enumerate(messages)
+        if msg.get("role") == "tool"
+        and len(msg.get("content", "")) > _SUMMARIZE_MIN_CHARS
+        and msg.get("tool_call_id") not in summarized_ids
+    ]
+    # Don't summarize the most recent tool results
+    if len(tool_indices) <= keep_recent:
+        return 0
+    to_summarize = tool_indices[:-keep_recent]
+
+    before_chars = _compute_context_size(messages)
+    count = 0
+    call_count = 0
+
+    for i in range(0, len(to_summarize), _SUMMARIZE_BATCH_SIZE):
+        batch = to_summarize[i:i + _SUMMARIZE_BATCH_SIZE]
+        batch_contents = []
+        for idx in batch:
+            msg = messages[idx]
+            batch_contents.append(f"--- Tool result (id={msg.get('tool_call_id')}) ---\n{msg['content']}")
+
+        prompt_messages = [
+            {"role": "system", "content": (
+                "Summarize the following tool results into a compact form for an AI agent. "
+                "Preserve all key facts: URLs, file paths, error messages, CLI flags, version numbers, and data structures. "
+                "Remove prose, repetition, and formatting whitespace. "
+                "Prioritize information density over readability — this will be consumed by an agent, not a human. "
+                "Target ~20% of original length."
+            )},
+            {"role": "user", "content": "\n\n".join(batch_contents)},
+        ]
+
+        try:
+            response = client.chat(messages=prompt_messages, temperature=0.1)
+            summary = (response.content or "").strip()
+            if not summary:
+                raise RuntimeError("Empty summary")
+            call_count += 1
+            for idx in batch:
+                msg = messages[idx]
+                old_len = len(msg["content"])
+                msg["content"] = f"[summarized] {summary}"
+                summarized_ids.add(msg["tool_call_id"])
+                count += 1
+        except Exception as e:
+            logger.warning("LLM summarization failed, falling back to truncation: %s", e)
+            for idx in batch:
+                msg = messages[idx]
+                old_content = msg["content"]
+                msg["content"] = old_content[:200] + f"[...truncated, {len(old_content)} chars total...]"
+                summarized_ids.add(msg["tool_call_id"])
+                count += 1
+
+    after_chars = _compute_context_size(messages)
+    if count > 0:
+        logger.info(
+            "LLM-summarized %d old tool results in %d calls to reduce context from %d to %d chars",
+            count, call_count, before_chars, after_chars,
+        )
+    return count
+
+
 def run_agent_loop(
     client: ApiClient,
     system_prompt: str,
@@ -51,6 +139,7 @@ def run_agent_loop(
     max_iterations: int = 10,
     temperature: float = 0.4,
     messages: list[dict] | None = None,
+    max_context_chars: int = 100_000,
 ) -> AgentResult:
     """
     Run a tool-use loop:
@@ -80,10 +169,15 @@ def run_agent_loop(
     iterations = 0
     final_content = ""
     terminated_naturally = False
+    summarized_ids: set[str] = set()
 
     for iteration in range(1, max_iterations + 1):
         iterations = iteration
-        logger.info("Agent iteration %d/%d", iteration, max_iterations)
+        total_chars = _compute_context_size(messages)
+        logger.info("Agent iteration %d/%d (context: %d chars, ~%d tokens)", iteration, max_iterations, total_chars, total_chars // 4)
+
+        if total_chars > max_context_chars:
+            _summarize_old_tool_results(client, messages, summarized_ids, max_context_chars)
 
         if iteration == max_iterations - 3 and max_iterations >= 10:
             messages.append({
@@ -111,7 +205,7 @@ def run_agent_loop(
                     "type": "function",
                     "function": {
                         "name": tc.name,
-                        "arguments": __import__("json").dumps(tc.arguments),
+                        "arguments": json.dumps(tc.arguments),
                     },
                 }
                 for tc in response.tool_calls

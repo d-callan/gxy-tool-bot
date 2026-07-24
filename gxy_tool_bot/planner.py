@@ -365,6 +365,7 @@ def generate_plan(
             tools=tools,
             max_iterations=config.api.max_tool_iterations,
             temperature=config.api.temperature_plan,
+            max_context_chars=config.api.max_context_chars,
         )
 
     plan_markdown = result.content
