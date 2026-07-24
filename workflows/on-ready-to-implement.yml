@@ -21,7 +21,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: pip install git+https://github.com/d-callan/gxy-tool-bot.git
+      - run: pip install gxy-tool-bot==0.1.0
       - run: pip install "planemo>=0.75.43"
       - name: Remove retry-generate and generation-failed labels
         if: github.event.label.name == 'retry-generate'
@@ -77,6 +77,7 @@ jobs:
           cp -r generated/. "tools/$TOOL_DIR/"
           rm -rf generated/
           rm -f "tools/$TOOL_DIR/.tool-name"
+          rm -f "tools/$TOOL_DIR/.validation-failed"
           # Detect files that are gitignored (e.g. .tar test data)
           IGNORED_FILES=$(find "tools/$TOOL_DIR" -type f | git check-ignore --no-index --files-from=- 2>/dev/null || true)
           # Add everything that isn't ignored
@@ -132,6 +133,19 @@ jobs:
           path: |
             ${{ github.workspace }}/tools/${{ steps.create_pr.outputs.tool_dir }}/test-data/*.tar
           if-no-files-found: ignore
+      - name: Post validation issues comment
+        if: steps.create_pr.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TOOL_DIR="${{ steps.create_pr.outputs.tool_dir }}"
+          if [ -f "$GITHUB_WORKSPACE/.validation-failed" ]; then
+            PR_NUMBER=$(gh pr list --head "tool-bot/issue-${{ github.event.issue.number }}" --state open --json number --jq '.[0].number' 2>/dev/null || echo "")
+            if [ -n "$PR_NUMBER" ]; then
+              gh pr comment "$PR_NUMBER" --body "⚠️ Validation issues were found during generation. See the PR description for details, or add the \`address-feedback\` label to have the bot attempt fixes."
+            fi
+          fi
+          rm -f "$GITHUB_WORKSPACE/.validation-failed"
       - name: Handle generation failure
         if: steps.generate.outcome == 'failure'
         env:

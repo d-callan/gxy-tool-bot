@@ -17,16 +17,17 @@ This repository is under active development. The bot can plan tool wrappers, gen
 1. **Request:** Users file a GitHub issue using the "Tool Request" issue template (structured fields for tool name, description, links, contact).
 2. **Plan:** The `tool-request` label triggers a workflow. An agent researches the tool (bioconda, GitHub, publications, web) and posts a plan as an issue comment with a `plan-ready` label.
 3. **Review:** A maintainer reviews the plan and adds the `ready-to-implement` label.
-4. **Generate:** An agent generates the tool XML, macros, and test data, then opens a PR with a `pr-opened` label on the issue. If generation fails, a `generation-failed` label is applied instead.
+4. **Generate:** An agent generates the tool XML, macros, and test data, then opens a PR with a `pr-opened` label on the issue. If the agent gives up or crashes, a `generation-failed` label is applied instead. If generation completes but validation finds issues, the PR is still created with the validation errors noted in the description — apply the `address-feedback` label to have the bot attempt fixes.
 
 ## Setup (for consuming repos)
 
 ### 1. Install the bot
 
-The bot is installed from GitHub (not yet on PyPI):
+The bot can be installed from PyPI or directly from GitHub:
 
 ```bash
-pip install git+https://github.com/d-callan/gxy-tool-bot.git
+pip install gxy-tool-bot              # from PyPI
+pip install git+https://github.com/d-callan/gxy-tool-bot.git  # latest from GitHub
 ```
 
 ### 2. Create a config file
@@ -91,10 +92,12 @@ Copy the workflow templates from the [`workflows/`](workflows/) directory in thi
 
 > **CI artifact assumption:** The feedback workflow fetches CI failure details from GitHub Actions artifacts. This assumes the CI workflow uploads failure reports as artifacts (e.g. lint reports as `.txt` files, planemo test results as `.json`), following the same conventions as the [tools-iuc](https://github.com/galaxyproject/tools-iuc) repo's `pr.yaml` workflow. If your repo uses a different CI setup that doesn't upload artifacts on failure, the bot will not be able to include CI failure details in its feedback context.
 
-Both workflows install the bot from GitHub:
+> **Validation flag file:** When generation or feedback addressing completes but validation finds issues, the CLI writes a `.validation-failed` flag file to `GITHUB_WORKSPACE` (a built-in GitHub Actions env var). The workflows check for this file to post a comment on the PR noting that validation issues exist. The file is cleaned up after use and is never committed.
+
+Both workflows install the bot from PyPI (pinned to a specific version):
 
 ```yaml
-- run: pip install git+https://github.com/d-callan/gxy-tool-bot.git
+- run: pip install gxy-tool-bot==0.1.0
 ```
 
 ### 6. Add repo secrets

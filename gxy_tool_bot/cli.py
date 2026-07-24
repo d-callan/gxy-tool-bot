@@ -168,15 +168,18 @@ def generate(issue: int, config_path: str, output_dir: str, actor: str | None, c
             click.echo(f"Agent gave up: {generated.give_up_reason}", err=True)
             sys.exit(3)
 
+        validation_errors: list[str] | None = None
         if not validation.valid:
-            error_msg = "⚠️ Generation completed but validation found errors:\n\n"
+            validation_errors = validation.errors
+            error_msg = "⚠️ Generation completed but validation found errors. A PR will still be created — use the `address-feedback` label to have the bot fix these:\n\n"
             for err in validation.errors:
                 error_msg += f"- {err}\n"
             error_msg += f"\nFiles generated: {len(generated.files)}"
             gh.add_comment(issue, error_msg)
-            gh.add_label(issue, config.labels.generation_failed)
-            click.echo(f"Generation failed validation: {len(validation.errors)} errors", err=True)
-            sys.exit(3)
+            click.echo(f"Generation completed with {len(validation.errors)} validation errors — PR will be created", err=True)
+            # Write flag file for workflow to detect
+            _ws = os.environ.get("GITHUB_WORKSPACE", str(Path(output_dir).parent))
+            Path(_ws, ".validation-failed").write_text("\n".join(validation_errors))
 
         # Post summary comment
         summary = f"📦 Tool files generated ({len(generated.files)}):\n\n"
@@ -204,6 +207,10 @@ def generate(issue: int, config_path: str, output_dir: str, actor: str | None, c
                 if commit_msg_path:
                     Path(commit_msg_path).write_text(commit_msg)
                 if pr_body_path:
+                    if validation_errors:
+                        pr_body += "\n\n---\n\n## ⚠️ Validation Issues\n\nThe following validation issues were found and should be addressed (use the `address-feedback` label to trigger fixes):\n\n"
+                        for err in validation_errors:
+                            pr_body += f"- {err}\n"
                     Path(pr_body_path).write_text(pr_body)
             except Exception as e:
                 logger.warning("Failed to generate commit message/PR body: %s", e)
@@ -263,13 +270,17 @@ def address_feedback_cmd(pr_number: int, config_path: str, tool_dir: str, actor:
             click.echo(f"Agent gave up: {generated.give_up_reason}", err=True)
             sys.exit(3)
 
+        validation_errors: list[str] | None = None
         if not validation.valid:
-            error_msg = "⚠️ Feedback addressed but validation found errors:\n\n"
+            validation_errors = validation.errors
+            error_msg = "⚠️ Feedback addressed but validation found errors. Changes will still be committed — use the `address-feedback` label again to have the bot fix these:\n\n"
             for err in validation.errors:
                 error_msg += f"- {err}\n"
             gh.add_comment(pr_number, error_msg)
-            click.echo(f"Validation failed: {len(validation.errors)} errors", err=True)
-            sys.exit(3)
+            click.echo(f"Validation failed: {len(validation.errors)} errors — changes will be committed", err=True)
+            # Write flag file for workflow to detect
+            _ws = os.environ.get("GITHUB_WORKSPACE", ".")
+            Path(_ws, ".validation-failed").write_text("\n".join(validation_errors))
 
         # Post summary comment
         changed = [f for f in generated.files]

@@ -24,7 +24,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: pip install git+https://github.com/d-callan/gxy-tool-bot.git
+      - run: pip install gxy-tool-bot==0.1.0
       - run: pip install "planemo>=0.75.43"
       - name: Remove address-feedback label
         env:
@@ -110,6 +110,15 @@ jobs:
           path: |
             ${{ github.workspace }}/tools/${{ steps.find_tool_dir.outputs.tool_dir }}/test-data/*.tar
           if-no-files-found: ignore
+      - name: Post validation issues comment
+        if: steps.address.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -f "$GITHUB_WORKSPACE/.validation-failed" ]; then
+            gh pr comment ${{ github.event.pull_request.number }} --body "⚠️ Validation issues were found after addressing feedback. Add the \`address-feedback\` label to have the bot attempt fixes again."
+            rm -f "$GITHUB_WORKSPACE/.validation-failed"
+          fi
       - name: Handle failure
         if: steps.address.outcome == 'failure'
         env:

@@ -19,7 +19,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: pip install git+https://github.com/d-callan/gxy-tool-bot.git
+      - run: pip install gxy-tool-bot==0.1.0
       - name: Remove retry-plan and generation-failed labels
         if: github.event.action == 'labeled'
         env:
