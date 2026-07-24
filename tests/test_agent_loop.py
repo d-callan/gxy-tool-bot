@@ -198,7 +198,7 @@ def test_context_size_logged(caplog) -> None:
 
 def test_context_summarization_triggers(caplog) -> None:
     """When context exceeds max_context_chars, old tool results should be LLM-summarized."""
-    big_result = "x" * 2000
+    big_result = "x" * 3000
     summary_text = "summarized content"
 
     # Iteration 1: tool call with big result
@@ -259,7 +259,7 @@ def test_context_summarization_triggers(caplog) -> None:
 
 def test_context_summarization_fallback_truncation() -> None:
     """If LLM summarization fails, old tool results should be naively truncated."""
-    big_result = "x" * 2000
+    big_result = "x" * 3000
 
     agent_responses = [
         ChatResponse(content=None, tool_calls=[_make_tool_call(f"call_{i}", "fetch", {})], finish_reason="tool_calls")
@@ -299,7 +299,7 @@ def test_context_summarization_fallback_truncation() -> None:
 
 def test_context_summarization_idempotent() -> None:
     """Already-summarized tool results should not be re-summarized."""
-    big_result = "x" * 2000
+    big_result = "x" * 3000
     summary_text = "summarized"
 
     agent_responses = [
@@ -552,3 +552,76 @@ def test_summarization_hysteresis(monkeypatch) -> None:
 
     # Summarization should have been called at most once or twice, not 6 times
     assert summarize_calls <= 2, f"Expected at most 2 summarization calls, got {summarize_calls}"
+
+
+def test_consecutive_write_nudge() -> None:
+    """After 3 consecutive writes to the same path with no other tool calls, a nudge should be injected."""
+    agent_responses = [
+        ChatResponse(content=None, tool_calls=[_make_tool_call(f"call_{i}", "write_file", {"path": "test.xml", "content": f"v{i}"})], finish_reason="tool_calls")
+        for i in range(1, 5)
+    ] + [ChatResponse(content="Done.", tool_calls=None, finish_reason="stop")]
+
+    client = MagicMock()
+    client.chat.side_effect = agent_responses
+
+    handler = MagicMock(return_value="File written: test.xml")
+    tools = [
+        ToolDefinition(
+            name="write_file",
+            description="write a file",
+            parameters={"type": "object", "properties": {}},
+            handler=handler,
+        ),
+    ]
+
+    result = run_agent_loop(
+        client=client,
+        system_prompt="sys",
+        user_prompt="user",
+        tools=tools,
+        max_iterations=5,
+    )
+
+    # A user nudge message should have been injected after the 3rd consecutive write
+    user_msgs = [m for m in result.messages if m.get("role") == "user"]
+    nudge_msgs = [m for m in user_msgs if "3 times in a row" in m.get("content", "")]
+    assert len(nudge_msgs) == 1, f"Expected 1 nudge message, got {len(nudge_msgs)}"
+
+
+def test_consecutive_write_reset_by_other_tool() -> None:
+    """A non-write tool call between writes should reset the consecutive count."""
+    agent_responses = [
+        # write 1
+        ChatResponse(content=None, tool_calls=[_make_tool_call("call_1", "write_file", {"path": "test.xml", "content": "v1"})], finish_reason="tool_calls"),
+        # write 2
+        ChatResponse(content=None, tool_calls=[_make_tool_call("call_2", "write_file", {"path": "test.xml", "content": "v2"})], finish_reason="tool_calls"),
+        # lint (resets counter)
+        ChatResponse(content=None, tool_calls=[_make_tool_call("call_3", "planemo_lint", {"path": "."})], finish_reason="tool_calls"),
+        # write 3 (should NOT trigger nudge — counter reset)
+        ChatResponse(content=None, tool_calls=[_make_tool_call("call_4", "write_file", {"path": "test.xml", "content": "v3"})], finish_reason="tool_calls"),
+        # write 4 (now 2 consecutive — still no nudge)
+        ChatResponse(content=None, tool_calls=[_make_tool_call("call_5", "write_file", {"path": "test.xml", "content": "v4"})], finish_reason="tool_calls"),
+        ChatResponse(content="Done.", tool_calls=None, finish_reason="stop"),
+    ]
+
+    client = MagicMock()
+    client.chat.side_effect = agent_responses
+
+    write_handler = MagicMock(return_value="File written: test.xml")
+    lint_handler = MagicMock(return_value="Lint OK")
+    tools = [
+        ToolDefinition(name="write_file", description="write", parameters={"type": "object", "properties": {}}, handler=write_handler),
+        ToolDefinition(name="planemo_lint", description="lint", parameters={"type": "object", "properties": {}}, handler=lint_handler),
+    ]
+
+    result = run_agent_loop(
+        client=client,
+        system_prompt="sys",
+        user_prompt="user",
+        tools=tools,
+        max_iterations=6,
+    )
+
+    user_msgs = [m for m in result.messages if m.get("role") == "user"]
+    nudge_msgs = [m for m in user_msgs if "times in a row" in m.get("content", "")]
+    assert len(nudge_msgs) == 0, f"Expected no nudge messages, got {len(nudge_msgs)}"

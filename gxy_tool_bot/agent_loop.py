@@ -14,9 +14,11 @@ logger = logging.getLogger(__name__)
 _TOOL_TIMEOUT_SECONDS = 120
 _SUMMARIZE_BATCH_SIZE = 10
 _SUMMARIZE_MIN_CHARS = 500
+_SUMMARIZE_MIN_BATCH_CHARS = 5000
 _SUMMARIZE_KEEP_RECENT = 5
 # Tools whose arguments contain large file content that can be pruned when overwritten.
 _OVERWRITE_TOOLS = {"write_file", "compress_file"}
+_REPEAT_WRITE_THRESHOLD = 3
 
 
 def _prune_previous_writes(messages: list[dict], path: str, current_call_id: str) -> None:
@@ -117,6 +119,12 @@ def _summarize_old_tool_results(
         return 0
     to_summarize = tool_indices[:-keep_recent]
 
+    # Skip if the total content to summarize is too small — an LLM round-trip
+    # isn't worth it if the context savings would be negligible.
+    total_summarize_chars = sum(len(messages[i].get("content", "")) for i in to_summarize)
+    if total_summarize_chars < _SUMMARIZE_MIN_BATCH_CHARS:
+        return 0
+
     before_chars = _compute_context_size(messages)
     count = 0
     call_count = 0
@@ -209,6 +217,8 @@ def run_agent_loop(
     terminated_naturally = False
     summarized_ids: set[str] = set()
     last_summarized_chars: int = 0
+    consecutive_write_key: str | None = None
+    consecutive_write_count: int = 0
 
     for iteration in range(1, max_iterations + 1):
         iterations = iteration
@@ -281,6 +291,26 @@ def run_agent_loop(
                 # If this is a write tool, prune previous writes to the same path
                 if tc.name in _OVERWRITE_TOOLS and tc.arguments.get("path"):
                     _prune_previous_writes(messages, tc.arguments["path"], tc.id)
+
+                # Track consecutive writes to the same path with no other tool calls in between
+                write_key = f"{tc.name}:{tc.arguments.get('path')}" if tc.name in _OVERWRITE_TOOLS else None
+                if write_key and write_key == consecutive_write_key:
+                    consecutive_write_count += 1
+                else:
+                    consecutive_write_key = write_key
+                    consecutive_write_count = 1 if write_key else 0
+                if consecutive_write_count >= _REPEAT_WRITE_THRESHOLD:
+                    logger.warning("Agent has written to %s %d times consecutively — injecting nudge", tc.arguments.get('path'), consecutive_write_count)
+                    messages.append({
+                        "role": "user",
+                        "content": (
+                            f"You have written to `{tc.arguments.get('path')}` {consecutive_write_count} times in a row "
+                            "without running any other tools. If your changes are not resolving the issue, "
+                            "step back and reconsider your approach — re-read error messages, check the tool's "
+                            "documentation, or use `give_up` if you're stuck."
+                        ),
+                    })
+                    consecutive_write_count = 0  # reset to avoid spamming the nudge
 
                 # If the agent called give_up, terminate the loop immediately
                 if result.startswith("Gave up:"):
