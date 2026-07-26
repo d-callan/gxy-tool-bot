@@ -59,6 +59,10 @@ exemplars:
 # repo is optional — falls back to GITHUB_REPOSITORY env var (set automatically in GitHub Actions)
 repo: your-org/your-repo
 
+# tool_owner is optional — defaults to 'iuc' for galaxyproject/tools-iuc,
+# otherwise the GitHub repo owner (first part of owner/repo)
+tool_owner: your-tool-shed-owner
+
 allowed_maintainers:
   - your-github-handle
 ```
