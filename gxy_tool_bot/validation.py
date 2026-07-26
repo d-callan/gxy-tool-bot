@@ -278,6 +278,18 @@ def validate_generated_files(files: list[GeneratedFile]) -> ValidationResult:
                     "truevalue should be the CLI flag (e.g. \"--verbose\" or \"-f\"), not \"true\"."
                 )
 
+    # Check for <validator> on select type params — options are predefined so validators can never fail
+    for path, root in xml_contents.items():
+        if "macros.xml" in path:
+            continue
+        for param in root.iter("param"):
+            if param.get("type") == "select" and param.find("validator") is not None:
+                param_name = param.get("name") or param.get("argument") or "unnamed"
+                errors.append(
+                    f"<param> '{param_name}' in {path} is a select with a <validator> — "
+                    "select params have predefined options, so validators can never fail. Remove the validator."
+                )
+
     # Check for <output> elements in <test> blocks missing ftype
     for path, root in xml_contents.items():
         if "macros.xml" in path:

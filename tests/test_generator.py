@@ -500,6 +500,28 @@ def test_validation_boolean_truevalue_true() -> None:
     assert any("truevalue" in e and "true" in e for e in result.errors)
 
 
+def test_validation_select_with_validator() -> None:
+    """Select param with a <validator> should fail — validators can never fail on predefined options."""
+    xml = b"""<?xml version="1.0"?>
+<tool id="test" name="Test" version="@TOOL_VERSION@+galaxy0">
+    <command detect_errors="aggressive">test --organism $organism</command>
+    <inputs>
+        <param name="organism" type="select" label="Organism">
+            <option value="human" selected="true">Human</option>
+            <option value="mouse">Mouse</option>
+            <validator type="regex">^[a-z]+$</validator>
+        </param>
+    </inputs>
+    <outputs><data name="output" format="fasta"/></outputs>
+    <tests><test expect_num_outputs="1"><param name="input" value="s.fa"/></test></tests>
+    <help format="markdown">Help</help>
+</tool>"""
+    files = [GeneratedFile(path="test.xml", content=xml)]
+    result = validate_generated_files(files)
+    assert result.valid is False
+    assert any("select" in e and "validator" in e for e in result.errors)
+
+
 def test_validation_test_output_missing_ftype() -> None:
     """Test <output> without ftype should fail."""
     xml = b"""<?xml version="1.0"?>
