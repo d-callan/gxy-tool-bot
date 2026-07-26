@@ -16,6 +16,8 @@ Then use the `write_file` tool function to produce each file. You must produce a
 - The main tool XML file (e.g. `my_tool.xml`)
 - A `macros.xml` file if the tool uses macros
 - A `.shed.yml` file with the tool shed metadata (name, owner, description, categories, etc.)
+  The `owner` in `.shed.yml` should default to `{{ tool_owner }}` (derived from the repo owner).
+  If the plan or maintainer feedback specifies a different owner, use that instead.
 - Test data files in `test-data/` (small files — fetch real data or generate tiny synthetic files)
 - Any wrapper scripts (R, Python, shell) if the plan calls for them
 

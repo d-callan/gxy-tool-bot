@@ -623,6 +623,17 @@ def _load_template(name: str) -> str:
     return env.get_template(name)
 
 
+def _derive_tool_owner(repo: str) -> str:
+    """Derive the Tool Shed owner from the repo string.
+
+    For galaxyproject/tools-iuc, the owner is 'iuc' by convention.
+    For all other repos, the owner is the GitHub repo owner (first part of owner/repo).
+    """
+    if repo == "galaxyproject/tools-iuc":
+        return "iuc"
+    return repo.split("/")[0]
+
+
 def generate_tool(
     plan_markdown: str,
     config: BotConfig,
@@ -644,7 +655,8 @@ def generate_tool(
     exemplars = fetch_exemplars(config.exemplars)
 
     # Build prompts
-    system_prompt = _load_template("generator_system.txt").render()
+    tool_owner = _derive_tool_owner(config.repo or "")
+    system_prompt = _load_template("generator_system.txt").render(tool_owner=tool_owner)
     user_prompt = _load_template("generator_user.txt").render(
         plan=plan_markdown,
         exemplars=_build_exemplar_text(exemplars),

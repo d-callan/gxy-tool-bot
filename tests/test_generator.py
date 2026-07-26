@@ -5,8 +5,15 @@ from __future__ import annotations
 import gzip
 from pathlib import Path
 
-from gxy_tool_bot.generator import GeneratedFile, FileWriter, _build_tool_definitions
+from gxy_tool_bot.generator import GeneratedFile, FileWriter, _build_tool_definitions, _derive_tool_owner
 from gxy_tool_bot.validation import ValidationResult, validate_generated_files
+
+
+def test_derive_tool_owner() -> None:
+    assert _derive_tool_owner("galaxyproject/tools-iuc") == "iuc"
+    assert _derive_tool_owner("bgruening/galaxytools") == "bgruening"
+    assert _derive_tool_owner("d-callan/galaxytools") == "d-callan"
+    assert _derive_tool_owner("veg/tools-iuc") == "veg"
 
 
 def test_validation_valid_xml(tmp_path: Path) -> None:
@@ -64,6 +71,46 @@ def test_validation_missing_test_data() -> None:
     result = validate_generated_files(files)
     assert result.valid is False
     assert any("missing.bam" in e for e in result.errors)
+
+
+def test_validation_comma_separated_test_data() -> None:
+    """Comma-separated file references should be split and checked individually."""
+    macros = b"""<?xml version="1.0"?>
+<macros>
+    <token name="@TOOL_VERSION@">1.0.0</token>
+    <token name="@VERSION_SUFFIX@">0</token>
+</macros>"""
+    xml = b"""<?xml version="1.0"?>
+<tool id="test" name="Test" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@">
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <tests>
+        <test expect_num_outputs="1">
+            <param name="input" value="file1.fa,file2.fa"/>
+        </test>
+    </tests>
+</tool>"""
+    # Both files exist — should be valid
+    files = [
+        GeneratedFile(path="test.xml", content=xml),
+        GeneratedFile(path="macros.xml", content=macros),
+        GeneratedFile(path="test-data/file1.fa", content=b">seq1\nACGT"),
+        GeneratedFile(path="test-data/file2.fa", content=b">seq2\nACGT"),
+    ]
+    result = validate_generated_files(files)
+    assert result.valid, f"Expected valid, got errors: {result.errors}"
+
+    # One file missing — should report only the missing one
+    files = [
+        GeneratedFile(path="test.xml", content=xml),
+        GeneratedFile(path="macros.xml", content=macros),
+        GeneratedFile(path="test-data/file1.fa", content=b">seq1\nACGT"),
+    ]
+    result = validate_generated_files(files)
+    assert result.valid is False
+    assert any("file2.fa" in e for e in result.errors)
+    assert not any("file1.fa" in e for e in result.errors)
 
 
 def test_validation_undefined_macro() -> None:

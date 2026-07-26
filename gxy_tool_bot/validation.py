@@ -96,8 +96,14 @@ def validate_generated_files(files: list[GeneratedFile]) -> ValidationResult:
             continue
         for test in tests_elem.findall("test"):
             for param in test.findall("param"):
-                fname = param.get("value", "")
-                if fname and not fname.startswith("${"):
+                raw_value = param.get("value", "")
+                if not raw_value or raw_value.startswith("${"):
+                    continue
+                # Galaxy allows comma-separated file references in param values
+                for fname in raw_value.split(","):
+                    fname = fname.strip()
+                    if not fname:
+                        continue
                     # Check if it looks like a file reference
                     if "." in fname and "/" not in fname:
                         expected = f"test-data/{fname}"
