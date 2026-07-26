@@ -251,17 +251,19 @@ def validate_generated_files(files: list[GeneratedFile]) -> ValidationResult:
                     "remove the display attribute; let Galaxy pick the widget."
                 )
 
-    # Check for <stdio> when detect_errors="aggressive" is present (redundant)
+    # Check for <stdio> with only <exit_code> children — detect_errors="aggressive" replaces this.
+    # <stdio> with <regex> children is allowed (detect_errors doesn't cover stdout/stderr pattern matching).
     for path, root in xml_contents.items():
         if "macros.xml" in path:
             continue
-        command_elem = root.find(".//command")
-        if command_elem is not None and command_elem.get("detect_errors") == "aggressive":
-            stdio_elem = root.find(".//stdio")
-            if stdio_elem is not None:
+        stdio_elem = root.find(".//stdio")
+        if stdio_elem is not None:
+            has_regex = stdio_elem.find("regex") is not None
+            if not has_regex:
                 errors.append(
-                    f"<stdio> in {path} is redundant when detect_errors=\"aggressive\" is set — "
-                    "remove the <stdio> element."
+                    f"<stdio> in {path} only contains exit_code rules — "
+                    "use detect_errors=\"aggressive\" on the <command> element instead. "
+                    "(Only use <stdio> if you need <regex> rules for stdout/stderr pattern matching.)"
                 )
 
     # Check for boolean params with truevalue="true" (should be the CLI flag)

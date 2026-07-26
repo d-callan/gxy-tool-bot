@@ -2,8 +2,8 @@
 - Produce valid XML. The tool XML must be well-formed.
 - The `<help>` section must be written in Markdown, not HTML. Use Markdown syntax (e.g. `**bold**`, `- bullet`, `# heading`) instead of HTML tags. Keep help concise and focused on what the user needs to know to run the tool — do not include authorship, attribution, version history, or extraneous detail.
 - Include `<citations>` with DOI citations where available.
-- **Every macro referenced via `<expand macro="NAME">` in the tool XML MUST be defined in `macros.xml`.** Common IUC macros that need definitions include: `requirements`, `version_command`, `stdio`, `citations`, `bio_tools`. Look at the exemplar macros.xml for the pattern — each is an `<xml name="NAME">` element inside `<macros>`. If you reference a macro, you must define it. Do not assume macros exist from an external source.
-- Use `detect_errors="aggressive"` on the `<command>` element.
+- **Every macro referenced via `<expand macro="NAME">` in the tool XML MUST be defined in `macros.xml`.** Common IUC macros that need definitions include: `requirements`, `version_command`, `citations`, `bio_tools`. Look at the exemplar macros.xml for the pattern — each is an `<xml name="NAME">` element inside `<macros>`. If you reference a macro, you must define it. Do not assume macros exist from an external source.
+- Use `detect_errors="aggressive"` on the `<command>` element. Do not include a `<stdio>` element unless you need `<regex>` rules for stdout/stderr pattern matching — `detect_errors="aggressive"` replaces `<exit_code>` rules.
 - Use `format="markdown"` on the `<help>` element: `<help format="markdown"><![CDATA[ ... ]]></help>`.
 - For CLI parameters, prefer `argument="--flag"` (Galaxy auto-derives the internal name from the flag). Use `name="..."` only when the parameter doesn't map to a single CLI flag (e.g. conditional layout choices, internal Galaxy options). Provide both `name` and `argument` only when the auto-derived name would be invalid in Cheetah (e.g. flag starts with a digit).
 - Include `expect_num_outputs` on every `<test>` element.

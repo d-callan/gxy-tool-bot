@@ -433,7 +433,7 @@ def test_validation_display_checkboxes() -> None:
 
 
 def test_validation_stdio_with_detect_errors() -> None:
-    """<stdio> with detect_errors=aggressive should fail (redundant)."""
+    """<stdio> with only exit_code children should fail even when detect_errors=aggressive is set."""
     xml = b"""<?xml version="1.0"?>
 <tool id="test" name="Test" version="@TOOL_VERSION@+galaxy0">
     <command detect_errors="aggressive">test</command>
@@ -446,7 +446,40 @@ def test_validation_stdio_with_detect_errors() -> None:
     files = [GeneratedFile(path="test.xml", content=xml)]
     result = validate_generated_files(files)
     assert result.valid is False
-    assert any("stdio" in e.lower() and "redundant" in e.lower() for e in result.errors)
+    assert any("stdio" in e.lower() and "detect_errors" in e.lower() for e in result.errors)
+
+
+def test_validation_stdio_without_detect_errors() -> None:
+    """<stdio> with only exit_code children should fail even without detect_errors=aggressive."""
+    xml = b"""<?xml version="1.0"?>
+<tool id="test" name="Test" version="@TOOL_VERSION@+galaxy0">
+    <command>test</command>
+    <stdio><exit_code range="1:" level="fatal"/></stdio>
+    <inputs><param name="input" type="data" format="fasta"/></inputs>
+    <outputs><data name="output" format="fasta"/></outputs>
+    <tests><test expect_num_outputs="1"><param name="input" value="s.fa"/></test></tests>
+    <help format="markdown">Help</help>
+</tool>"""
+    files = [GeneratedFile(path="test.xml", content=xml)]
+    result = validate_generated_files(files)
+    assert result.valid is False
+    assert any("stdio" in e.lower() and "detect_errors" in e.lower() for e in result.errors)
+
+
+def test_validation_stdio_with_regex_allowed() -> None:
+    """<stdio> with <regex> children should not fail (regex is not replaced by detect_errors)."""
+    xml = b"""<?xml version="1.0"?>
+<tool id="test" name="Test" version="@TOOL_VERSION@+galaxy0">
+    <command detect_errors="aggressive">test</command>
+    <stdio><regex match="Error" level="fatal" source="stderr"/></stdio>
+    <inputs><param name="input" type="data" format="fasta"/></inputs>
+    <outputs><data name="output" format="fasta"/></outputs>
+    <tests><test expect_num_outputs="1"><param name="input" value="s.fa"/></test></tests>
+    <help format="markdown">Help</help>
+</tool>"""
+    files = [GeneratedFile(path="test.xml", content=xml)]
+    result = validate_generated_files(files)
+    assert not any("stdio" in e.lower() for e in result.errors)
 
 
 def test_validation_boolean_truevalue_true() -> None:
