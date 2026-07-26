@@ -46,6 +46,7 @@ class BotConfig:
     repo: str | None = None
     labels: LabelConfig = field(default_factory=LabelConfig)
     allowed_maintainers: list[str] | None = None
+    tool_owner: str | None = None
 
 
 def load_config(path: Path) -> BotConfig:
@@ -97,6 +98,7 @@ def load_config(path: Path) -> BotConfig:
     )
 
     allowed_maintainers = raw.get("allowed_maintainers")
+    tool_owner = raw.get("tool_owner")
 
     return BotConfig(
         api=api,
@@ -104,4 +106,5 @@ def load_config(path: Path) -> BotConfig:
         repo=repo,
         labels=labels,
         allowed_maintainers=allowed_maintainers,
+        tool_owner=tool_owner,
     )

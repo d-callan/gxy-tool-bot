@@ -655,7 +655,7 @@ def generate_tool(
     exemplars = fetch_exemplars(config.exemplars)
 
     # Build prompts
-    tool_owner = _derive_tool_owner(config.repo or "")
+    tool_owner = config.tool_owner or _derive_tool_owner(config.repo or "")
     system_prompt = _load_template("generator_system.txt").render(tool_owner=tool_owner)
     user_prompt = _load_template("generator_user.txt").render(
         plan=plan_markdown,
