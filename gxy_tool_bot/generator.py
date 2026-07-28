@@ -171,6 +171,16 @@ class FileWriter:
                 "to fetch from a URL, or use compress_file for .gz files."
             )
 
+        # Strip XML encoding declarations — planemo/lxml crashes on Unicode
+        # strings with encoding declarations (known lxml bug). UTF-8 is the
+        # default, so the declaration is unnecessary.
+        if path.endswith(".xml"):
+            content_bytes = re.sub(
+                rb'<\?xml[^>]*encoding="[^"]*"[^>]*\?>\s*',
+                b'',
+                content_bytes,
+            )
+
         # Reject files larger than 1MB — use download_file for binary test data
         max_write_bytes = 1_000_000
         if len(content_bytes) > max_write_bytes:

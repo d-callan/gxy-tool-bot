@@ -657,6 +657,114 @@ def test_write_file_accepts_normal_text(tmp_path: Path) -> None:
     result = fw.write_file({"path": "test.xml", "content": "<?xml version=\"1.0\"?>\n<tool/>"})
     assert "File written" in result
     assert "test.xml" in fw.files
+    # XML declaration without encoding should be preserved
+    assert b"<?xml version=\"1.0\"?>" in fw.files["test.xml"]
+
+
+def test_write_file_strips_xml_encoding_declaration(tmp_path: Path) -> None:
+    """write_file should strip XML encoding declarations to prevent planemo/lxml crashes."""
+    fw = FileWriter(tmp_path)
+    result = fw.write_file({
+        "path": "test.xml",
+        "content": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<tool/>",
+    })
+    assert "File written" in result
+    content = fw.files["test.xml"]
+    assert b"encoding" not in content
+    assert b"<tool/>" in content
+
+
+def test_write_file_strips_encoding_lowercase(tmp_path: Path) -> None:
+    """Should strip encoding regardless of case."""
+    fw = FileWriter(tmp_path)
+    fw.write_file({
+        "path": "test.xml",
+        "content": "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<tool/>",
+    })
+    content = fw.files["test.xml"]
+    assert b"encoding" not in content
+    assert b"<tool/>" in content
+
+
+def test_write_file_strips_encoding_with_attributes_after(tmp_path: Path) -> None:
+    """Should strip declaration when encoding is not the last attribute."""
+    fw = FileWriter(tmp_path)
+    fw.write_file({
+        "path": "test.xml",
+        "content": "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<tool/>",
+    })
+    content = fw.files["test.xml"]
+    assert b"encoding" not in content
+    assert b"standalone" not in content
+    assert b"<tool/>" in content
+
+
+def test_write_file_strips_encoding_attribute_order(tmp_path: Path) -> None:
+    """Should strip declaration when encoding appears before version."""
+    fw = FileWriter(tmp_path)
+    fw.write_file({
+        "path": "test.xml",
+        "content": "<?xml encoding=\"UTF-8\" version=\"1.0\"?>\n<tool/>",
+    })
+    content = fw.files["test.xml"]
+    assert b"encoding" not in content
+    assert b"<tool/>" in content
+
+
+def test_write_file_preserves_declaration_without_encoding(tmp_path: Path) -> None:
+    """Should preserve <?xml version="1.0"?> when no encoding attribute is present."""
+    fw = FileWriter(tmp_path)
+    fw.write_file({
+        "path": "test.xml",
+        "content": "<?xml version=\"1.0\"?>\n<tool/>",
+    })
+    content = fw.files["test.xml"]
+    assert b"<?xml version=\"1.0\"?>" in content
+    assert b"<tool/>" in content
+
+
+def test_write_file_preserves_xml_without_declaration(tmp_path: Path) -> None:
+    """Should not modify XML that has no declaration at all."""
+    fw = FileWriter(tmp_path)
+    original = b"<tool><command>echo hello</command></tool>"
+    fw.write_file({"path": "test.xml", "content": original.decode()})
+    content = fw.files["test.xml"]
+    assert content == original
+
+
+def test_write_file_preserves_non_xml_files(tmp_path: Path) -> None:
+    """Should not touch non-XML files even if they contain encoding-like strings."""
+    fw = FileWriter(tmp_path)
+    original = '<?xml version="1.0" encoding="UTF-8"?>\n<tool/>'
+    fw.write_file({"path": "test-data/sample.txt", "content": original})
+    content = fw.files["test-data/sample.txt"]
+    assert b"encoding" in content
+    assert content == original.encode("utf-8")
+
+
+def test_write_file_preserves_encoding_in_xml_body(tmp_path: Path) -> None:
+    """Should only strip the declaration, not encoding strings elsewhere in the XML."""
+    fw = FileWriter(tmp_path)
+    fw.write_file({
+        "path": "test.xml",
+        "content": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<tool help=\"Use encoding=UTF-8 for output\"/>",
+    })
+    content = fw.files["test.xml"]
+    # Declaration should be stripped
+    assert not content.startswith(b"<?xml")
+    # But encoding in the body should be preserved
+    assert b"encoding=UTF-8" in content
+
+
+def test_write_file_strips_declaration_with_trailing_whitespace(tmp_path: Path) -> None:
+    """Should strip declaration and trailing whitespace (newlines, spaces) after it."""
+    fw = FileWriter(tmp_path)
+    fw.write_file({
+        "path": "test.xml",
+        "content": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\n<tool/>",
+    })
+    content = fw.files["test.xml"]
+    assert content == b"<tool/>"
 
 
 def test_give_up_sets_reason(tmp_path: Path) -> None:
