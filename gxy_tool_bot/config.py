@@ -51,6 +51,10 @@ class BotConfig:
     labels: LabelConfig = field(default_factory=LabelConfig)
     allowed_maintainers: list[str] | None = None
     tool_owner: str | None = None
+    # When True, the agent writes an append-only .agent-notes file to the tool
+    # directory with concise rationale for non-obvious decisions. The feedback
+    # flow reads and appends to it. Defaults to False (no extra files).
+    agent_notes: bool = False
 
 
 def load_config(path: Path) -> BotConfig:
@@ -104,6 +108,7 @@ def load_config(path: Path) -> BotConfig:
 
     allowed_maintainers = raw.get("allowed_maintainers")
     tool_owner = raw.get("tool_owner")
+    agent_notes = raw.get("agent_notes", False)
 
     return BotConfig(
         api=api,
@@ -112,4 +117,5 @@ def load_config(path: Path) -> BotConfig:
         labels=labels,
         allowed_maintainers=allowed_maintainers,
         tool_owner=tool_owner,
+        agent_notes=agent_notes,
     )

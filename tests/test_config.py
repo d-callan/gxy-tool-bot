@@ -100,6 +100,20 @@ def test_load_config_iterations_per_extra_tool_xml_custom(tmp_path: Path) -> Non
     assert config.api.iterations_per_extra_tool_xml == 2
 
 
+def test_load_config_agent_notes_default_false(tmp_path: Path) -> None:
+    path = _write_config(tmp_path, _valid_config())
+    config = load_config(path)
+    assert config.agent_notes is False
+
+
+def test_load_config_agent_notes_true(tmp_path: Path) -> None:
+    data = _valid_config()
+    data["agent_notes"] = True
+    path = _write_config(tmp_path, data)
+    config = load_config(path)
+    assert config.agent_notes is True
+
+
 def test_load_config_missing_api(tmp_path: Path) -> None:
     data = _valid_config()
     del data["api"]

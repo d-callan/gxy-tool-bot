@@ -256,8 +256,17 @@ def address_feedback(
     system_prompt = _load_template("feedback_system.txt").render()
     user_prompt = _build_feedback_user_prompt(ctx)
 
+    if config.agent_notes:
+        user_prompt += (
+            "\n\n---\n\n## Agent Notes\n\n"
+            "If a `.agent-notes` file exists, use `read_file` to read it for context on "
+            "decisions made during generation. After fixing the issues, call `add_agent_notes` "
+            "to append a new feedback round section with concise notes on what you changed "
+            "and why. Focus only on things not obvious from the files themselves."
+        )
+
     # Load existing files into FileWriter so they're tracked
-    file_writer = FileWriter(tool_dir)
+    file_writer = FileWriter(tool_dir, mode="feedback")
     for path, content in ctx.existing_files.items():
         file_writer.files[path] = content.encode("utf-8")
         # Also write to disk so the agent can see them
@@ -265,7 +274,7 @@ def address_feedback(
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(content, encoding="utf-8")
 
-    tools = _build_tool_definitions(file_writer)
+    tools = _build_tool_definitions(file_writer, config)
 
     # Track which files existed before the agent runs, so we can detect
     # if the agent only researched without modifying anything.

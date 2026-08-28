@@ -43,8 +43,9 @@ class GeneratedTool:
 class FileWriter:
     """Handles write_file tool calls, collecting files into a dict."""
 
-    def __init__(self, output_dir: Path):
+    def __init__(self, output_dir: Path, mode: str = "generate"):
         self.output_dir = output_dir
+        self.mode = mode
         self.files: dict[str, bytes] = {}
         self.tool_dir: str | None = None
         self.give_up_reason: str | None = None
@@ -364,8 +365,52 @@ class FileWriter:
             self.files[dest_path] = downloaded
         return result
 
+    def add_agent_notes(self, args: dict) -> str:
+        """Append concise notes to .agent-notes (never removes existing content).
 
-def _build_tool_definitions(file_writer: FileWriter) -> list[ToolDefinition]:
+        In generate mode, notes go into a '## Generation notes' section (created
+        on first call, appended on subsequent calls). In feedback mode, each call
+        appends a new '## Feedback round N' section, incrementing N.
+        """
+        notes = args.get("notes", "")
+        if not notes.strip():
+            return "Error: notes is required"
+
+        notes_path = ".agent-notes"
+        dest = (self.output_dir / notes_path).resolve()
+        existing = b""
+        if dest.exists():
+            try:
+                existing = dest.read_bytes()
+            except OSError:
+                existing = b""
+        existing_text = existing.decode("utf-8", errors="replace") if existing else ""
+
+        if self.mode == "feedback":
+            # Count existing feedback round sections to pick the next number.
+            rounds = re.findall(r"^## Feedback round (\d+)", existing_text, re.MULTILINE)
+            next_round = max((int(r) for r in rounds), default=0) + 1
+            section = f"## Feedback round {next_round}\n\n{notes.strip()}\n"
+            if existing_text:
+                new_text = existing_text.rstrip() + "\n\n" + section
+            else:
+                new_text = f"# Agent Notes\n\n{section}"
+        else:
+            # Generate mode: create or append to the generation section.
+            if "## Generation notes" in existing_text:
+                new_text = existing_text.rstrip() + f"\n{notes.strip()}\n"
+            else:
+                new_text = f"# Agent Notes\n\n## Generation notes\n\n{notes.strip()}\n"
+
+        content_bytes = new_text.encode("utf-8")
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(content_bytes)
+        self.files[notes_path] = content_bytes
+        logger.info("add_agent_notes: appended %d chars (mode=%s)", len(notes), self.mode)
+        return f"Notes appended to {notes_path}"
+
+
+def _build_tool_definitions(file_writer: FileWriter, config: BotConfig | None = None) -> list[ToolDefinition]:
     """Build tool function definitions for the generator agent."""
     tools = [
         ToolDefinition(
@@ -538,6 +583,26 @@ def _build_tool_definitions(file_writer: FileWriter) -> list[ToolDefinition]:
         ),
     ]
 
+    if config and config.agent_notes:
+        tools.append(ToolDefinition(
+            name="add_agent_notes",
+            description=(
+                "Append concise notes to .agent-notes for human reviewers. "
+                "Focus ONLY on things not obvious from the other files: rationale for "
+                "non-obvious decisions, unexpected issues that arose, trade-offs made. "
+                "Keep it brief and human-readable. This file is append-only — existing "
+                "content is never removed. Call this once at the end of your work."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "notes": {"type": "string", "description": "Concise notes for reviewers"},
+                },
+                "required": ["notes"],
+            },
+            handler=file_writer.add_agent_notes,
+        ))
+
     if shutil.which("planemo"):
         tools.append(ToolDefinition(
             name="planemo_lint",
@@ -672,9 +737,18 @@ def generate_tool(
         exemplars=_build_exemplar_text(exemplars),
     )
 
+    if config.agent_notes:
+        user_prompt += (
+            "\n\n---\n\n## Agent Notes\n\n"
+            "After writing all files, call `add_agent_notes` with concise notes for human "
+            "reviewers. Focus ONLY on things not obvious from the files themselves: rationale "
+            "for non-obvious decisions, unexpected issues that arose, trade-offs made. "
+            "Keep it brief."
+        )
+
     # Set up file writer and tools
     file_writer = FileWriter(output_dir)
-    tools = _build_tool_definitions(file_writer)
+    tools = _build_tool_definitions(file_writer, config)
 
     no_files_nudge = (
         "No files were generated in the previous attempt. The agent spent all iterations"

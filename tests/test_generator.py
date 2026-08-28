@@ -1393,3 +1393,97 @@ def test_planemo_tools_added_when_installed(tmp_path: Path) -> None:
     test_tool = next(t for t in tools if t.name == "planemo_test")
     assert lint_tool.timeout == 180
     assert test_tool.timeout == 300
+
+
+def test_add_agent_notes_generation_creates_file(tmp_path: Path) -> None:
+    """In generate mode, first call creates .agent-notes with a Generation notes section."""
+    fw = FileWriter(tmp_path)
+    result = fw.add_agent_notes({"notes": "Chose to use a token for versioning."})
+    assert "appended" in result.lower()
+    content = (tmp_path / ".agent-notes").read_text()
+    assert "# Agent Notes" in content
+    assert "## Generation notes" in content
+    assert "Chose to use a token for versioning." in content
+    assert ".agent-notes" in fw.files
+
+
+def test_add_agent_notes_generation_appends_no_new_header(tmp_path: Path) -> None:
+    """Second call in generate mode appends without a new section header."""
+    fw = FileWriter(tmp_path)
+    fw.add_agent_notes({"notes": "First note."})
+    fw.add_agent_notes({"notes": "Second note."})
+    content = (tmp_path / ".agent-notes").read_text()
+    assert content.count("## Generation notes") == 1
+    assert "First note." in content
+    assert "Second note." in content
+
+
+def test_add_agent_notes_feedback_adds_round_1(tmp_path: Path) -> None:
+    """In feedback mode with existing generation notes, adds Feedback round 1."""
+    fw = FileWriter(tmp_path)
+    fw.add_agent_notes({"notes": "Initial generation note."})
+    fw.mode = "feedback"
+    fw.add_agent_notes({"notes": "Fixed lint error in macros.xml."})
+    content = (tmp_path / ".agent-notes").read_text()
+    assert "## Generation notes" in content
+    assert "## Feedback round 1" in content
+    assert "Fixed lint error in macros.xml." in content
+
+
+def test_add_agent_notes_feedback_multiple_rounds(tmp_path: Path) -> None:
+    """In feedback mode, each call increments the round number."""
+    fw = FileWriter(tmp_path)
+    fw.add_agent_notes({"notes": "Gen note."})
+    fw.mode = "feedback"
+    fw.add_agent_notes({"notes": "Round 1 fix."})
+    fw.add_agent_notes({"notes": "Round 2 fix."})
+    content = (tmp_path / ".agent-notes").read_text()
+    assert "## Feedback round 1" in content
+    assert "## Feedback round 2" in content
+    assert "Round 1 fix." in content
+    assert "Round 2 fix." in content
+
+
+def test_add_agent_notes_empty_notes_error(tmp_path: Path) -> None:
+    """Empty notes should return an error."""
+    fw = FileWriter(tmp_path)
+    result = fw.add_agent_notes({"notes": ""})
+    assert "Error" in result
+
+
+def test_add_agent_notes_never_removes_existing(tmp_path: Path) -> None:
+    """Appending must preserve all existing content."""
+    fw = FileWriter(tmp_path)
+    fw.add_agent_notes({"notes": "Original generation note."})
+    fw.mode = "feedback"
+    fw.add_agent_notes({"notes": "Feedback note."})
+    content = (tmp_path / ".agent-notes").read_text()
+    assert "Original generation note." in content
+    assert "Feedback note." in content
+
+
+def test_add_agent_notes_tool_not_added_by_default(tmp_path: Path) -> None:
+    """add_agent_notes tool should not be in tools when agent_notes is False (default)."""
+    from gxy_tool_bot.config import BotConfig, ApiConfig, ExemplarConfig
+    config = BotConfig(
+        api=ApiConfig(base_url="https://example.com", model="m"),
+        exemplars=[ExemplarConfig(url="https://example.com/x.xml")],
+        repo="o/r",
+    )
+    fw = FileWriter(tmp_path)
+    tools = _build_tool_definitions(fw, config)
+    assert "add_agent_notes" not in [t.name for t in tools]
+
+
+def test_add_agent_notes_tool_added_when_enabled(tmp_path: Path) -> None:
+    """add_agent_notes tool should be in tools when config.agent_notes is True."""
+    from gxy_tool_bot.config import BotConfig, ApiConfig, ExemplarConfig
+    config = BotConfig(
+        api=ApiConfig(base_url="https://example.com", model="m"),
+        exemplars=[ExemplarConfig(url="https://example.com/x.xml")],
+        repo="o/r",
+        agent_notes=True,
+    )
+    fw = FileWriter(tmp_path)
+    tools = _build_tool_definitions(fw, config)
+    assert "add_agent_notes" in [t.name for t in tools]
