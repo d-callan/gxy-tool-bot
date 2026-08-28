@@ -41,6 +41,7 @@ class LabelConfig:
     ready_to_implement: str = "ready-to-implement"
     pr_opened: str = "pr-opened"
     generation_failed: str = "generation-failed"
+    review: str = "review"
 
 
 @dataclass
@@ -55,6 +56,15 @@ class BotConfig:
     # directory with concise rationale for non-obvious decisions. The feedback
     # flow reads and appends to it. Defaults to False (no extra files).
     agent_notes: bool = False
+    # Controls when integrated review runs after generate/feedback flows:
+    #   "never" — no integrated review (default, current behavior)
+    #   "on-validation-pass" — review only after validation passes
+    #   "always" — review after completion regardless of validation status
+    integrated_review_mode: str = "never"
+    # Max number of review→fix rounds in integrated mode. Each round: review →
+    # feed findings → agent fixes. Default 1 (one fix round). 0 disables
+    # integrated review even if integrated_review_mode is set.
+    max_review_fix_rounds: int = 1
 
 
 def load_config(path: Path) -> BotConfig:
@@ -104,11 +114,14 @@ def load_config(path: Path) -> BotConfig:
         ready_to_implement=labels_raw.get("ready_to_implement", "ready-to-implement"),
         pr_opened=labels_raw.get("pr_opened", "pr-opened"),
         generation_failed=labels_raw.get("generation_failed", "generation-failed"),
+        review=labels_raw.get("review", "review"),
     )
 
     allowed_maintainers = raw.get("allowed_maintainers")
     tool_owner = raw.get("tool_owner")
     agent_notes = raw.get("agent_notes", False)
+    integrated_review_mode = raw.get("integrated_review_mode", "never")
+    max_review_fix_rounds = raw.get("max_review_fix_rounds", 1)
 
     return BotConfig(
         api=api,
@@ -118,4 +131,6 @@ def load_config(path: Path) -> BotConfig:
         allowed_maintainers=allowed_maintainers,
         tool_owner=tool_owner,
         agent_notes=agent_notes,
+        integrated_review_mode=integrated_review_mode,
+        max_review_fix_rounds=max_review_fix_rounds,
     )

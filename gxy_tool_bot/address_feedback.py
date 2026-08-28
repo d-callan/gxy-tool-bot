@@ -20,6 +20,7 @@ from gxy_tool_bot.generator import (
 from gxy_tool_bot.validation import ValidationResult, run_agent_with_validation
 from gxy_tool_bot.github_client import Comment, GitHubClient
 from gxy_tool_bot.planemo_utils import summarize_test_json
+from gxy_tool_bot.utils import read_tool_files
 
 logger = logging.getLogger(__name__)
 
@@ -54,18 +55,7 @@ def _collect_feedback(gh: GitHubClient, pr_number: int, tool_dir: Path) -> Feedb
     failed_checks = [c for c in all_checks if c.get("conclusion") not in ("success", None, "")]
 
     # Read existing files from the tool directory
-    existing_files: dict[str, str] = {}
-    if tool_dir.exists():
-        for f in tool_dir.rglob("*"):
-            if f.is_file():
-                rel = f.relative_to(tool_dir)
-                # Skip internal files
-                if rel.name == ".tool-name":
-                    continue
-                try:
-                    existing_files[str(rel)] = f.read_text(encoding="utf-8")
-                except (UnicodeDecodeError, OSError):
-                    existing_files[str(rel)] = f.read_bytes().decode("utf-8", errors="replace")
+    existing_files = read_tool_files(tool_dir)
 
     # Fetch CI artifacts (lint reports, test outputs, etc.)
     #
@@ -300,6 +290,25 @@ def address_feedback(
             tools=tools,
             file_writer=file_writer,
             config=config,
+            no_files_nudge=no_files_nudge,
+            write_tools=_WRITE_TOOLS,
+        )
+
+    # Integrated self-review: if enabled, run review on the updated files
+    # and give the agent fix rounds to address any findings.
+    if config.integrated_review_mode != "never" and config.max_review_fix_rounds > 0:
+        from gxy_tool_bot.review import run_integrated_review
+        files, result, validation, _review_result = run_integrated_review(
+            tool_dir=tool_dir,
+            config=config,
+            api_key=api_key,
+            validation_passed=validation.valid,
+            file_writer=file_writer,
+            original_result=result,
+            original_files=files,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            tools=tools,
             no_files_nudge=no_files_nudge,
             write_tools=_WRITE_TOOLS,
         )

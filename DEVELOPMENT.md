@@ -12,7 +12,8 @@ conventions, validation checks, or prompt changes.
 | `gxy_tool_bot/templates/generator_system.txt` | Generation flow | System prompt — tells the agent how to write Galaxy tool XML, IUC conventions, available tools |
 | `gxy_tool_bot/templates/generator_user.txt` | Generation flow | User prompt — contains the plan, exemplar tools, and instructions |
 | `gxy_tool_bot/templates/feedback_system.txt` | Feedback flow | System prompt — tells the agent how to fix existing tools based on CI/reviewer feedback |
-| `gxy_tool_bot/templates/_conventions.txt` | Both flows | Shared IUC conventions included via Jinja2 `{% include %}` in both system prompts. Update this file once to change a convention in both flows. |
+| `gxy_tool_bot/templates/review_system.txt` | Review flow | System prompt — tells the review agent how to review tool files, what categories to check, and how to format findings |
+| `gxy_tool_bot/templates/_conventions.txt` | All flows | Shared IUC conventions included via Jinja2 `{% include %}` in all system prompts. Update this file once to change a convention everywhere. |
 | `gxy_tool_bot/address_feedback.py` (`_build_feedback_user_prompt`) | Feedback flow | User prompt — built dynamically from PR comments, CI artifacts, and file listing |
 
 ### Validation
@@ -22,6 +23,8 @@ conventions, validation checks, or prompt changes.
 | `gxy_tool_bot/validation.py` | `ValidationResult`, `validate_generated_files`, and `run_agent_with_validation` — all validation logic lives here |
 | `gxy_tool_bot/generator.py` | `FileWriter`, `GeneratedFile`, `GeneratedTool`, tool definitions, and the `generate_tool` entry point |
 | `gxy_tool_bot/address_feedback.py` | Feedback collection, prompt building, and the `address_feedback` entry point |
+| `gxy_tool_bot/review.py` | Review module — `ReviewFinding`, `ReviewResult`, `collect_review_context`, `run_review`, `parse_findings`, `run_integrated_review`. Used by both standalone review and integrated self-review. |
+| `gxy_tool_bot/utils.py` | Shared helpers — `read_tool_files` (used by feedback and review flows) |
 
 ### Agent loop
 
@@ -126,3 +129,36 @@ for usage details.
 - Both paths reuse the real production code, so eval results reflect actual bot behavior.
 - The harness measures: validation pass/fail, planemo lint/test pass/fail, agent iteration count, validation retry count, and structural assertions (XML element existence, file content patterns, etc.).
 - `run_agent_with_validation` now returns a 4th value (`validation_retries: int`) — both `generate_tool` and `address_feedback` unpack it.
+
+## Tool Review
+
+The review module (`gxy_tool_bot/review.py`) provides two modes:
+
+### Standalone review
+
+Triggered by the `review` label on a PR. The CLI `review` command collects context (files, CI, exemplars), runs a review agent with read-only tools, and posts structured findings as a PR comment.
+
+### Integrated self-review
+
+When `integrated_review_mode` is enabled in config, `generate_tool` and `address_feedback` call `run_integrated_review()` after the main agent loop completes. This runs a review agent (fresh context), feeds findings back to the original agent (continuing from its conversation history), and repeats for up to `max_review_fix_rounds` rounds.
+
+### Context management
+
+- **Review agent**: always fresh context (no inherited conversation). This gives it "fresh eyes" — it reviews files as they are, not as the writer intended.
+- **Post-review fix agent**: continues from the original conversation history (same pattern as validation retries in `run_agent_with_validation`). Efficient because the agent already knows what it did; context bloat is auto-handled by `run_agent_loop`'s summarization.
+- **Re-review (round 2+)**: fresh context each time. Each review is independent and unbiased.
+
+### Review agent tools
+
+The review agent has read-only tools only: `read_file`, `planemo_lint`, `planemo_test`, `search_github`, `search_web`, `search_bio_tools`. No write tools — it analyzes, doesn't fix. The fix is done by the original agent in the integrated fix rounds.
+
+### Findings format
+
+The review agent outputs structured findings:
+```
+### [severity] category: file:line
+Description.
+Suggestion: How to fix.
+```
+
+Severity: `critical`, `warning`, `suggestion`. Categories: `validation`, `conventions`, `completeness`, `test_coverage`, `security_bugs`, `brittleness`. The `parse_findings()` function parses this into `ReviewFinding` objects, with a graceful fallback for malformed output.

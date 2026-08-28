@@ -71,6 +71,16 @@ tool_owner: your-tool-shed-owner
 
 allowed_maintainers:
   - your-github-handle
+
+# Integrated self-review: runs a review agent after generate/feedback flows
+# and feeds findings back to the original agent for fix rounds.
+#   "never" (default) — no integrated review
+#   "on-validation-pass" — review only after validation passes
+#   "always" — review after completion regardless of validation status
+integrated_review_mode: never
+# Max review→fix rounds in integrated mode. Each round: review → feed findings → agent fixes.
+# Default 1. 0 disables integrated review even if integrated_review_mode is set.
+max_review_fix_rounds: 1
 ```
 
 ### 3. Create GitHub labels
@@ -87,6 +97,7 @@ Create these labels in the repo (Settings → Labels):
 | `retry-plan` | `#fbca04` | Applied by user/maintainer to re-trigger planning after a failure |
 | `retry-generate` | `#fbca04` | Applied by user/maintainer to re-trigger generation after a failure |
 | `address-feedback` | `#5319e7` | Applied to a PR to have the bot address review comments and CI failures |
+| `review` | `#bfd4f2` | Applied to a PR to have the bot review tool files and post findings |
 
 ### 4. Add the issue template
 
@@ -99,6 +110,7 @@ Copy the workflow templates from the [`workflows/`](workflows/) directory in thi
 - **`on-tool-request.yml`** → `.github/workflows/gxy-on-tool-request.yml` — triggers on new issues with `tool-request` label or when `retry-plan` label is added; runs the planner
 - **`on-ready-to-implement.yml`** → `.github/workflows/gxy-on-ready-to-implement.yml` — triggers when `ready-to-implement` or `retry-generate` label is added; runs the generator and opens a PR
 - **`on-pr-feedback.yml`** → `.github/workflows/gxy-on-pr-feedback.yml` — triggers when `address-feedback` label is added to a PR; reads review comments and CI failures, pushes fixes as new commits
+- **`on-pr-review.yml`** → `.github/workflows/gxy-on-pr-review.yml` — triggers when `review` label is added to a PR; reviews tool files and posts structured findings as a comment
 
 > **CI artifact assumption:** The feedback workflow fetches CI failure details from GitHub Actions artifacts. This assumes the CI workflow uploads failure reports as artifacts (e.g. lint reports as `.txt` files, planemo test results as `.json`), following the same conventions as the [tools-iuc](https://github.com/galaxyproject/tools-iuc) repo's `pr.yaml` workflow. If your repo uses a different CI setup that doesn't upload artifacts on failure, the bot will not be able to include CI failure details in its feedback context.
 
@@ -167,6 +179,35 @@ The bot is automated but not magic. It implements what's requested — it doesn'
 - **Resolve comments you don't need addressed.** During feedback loops, the bot sees all unresolved review comments. Stale comments it no longer needs to act on will confuse and distract it. Resolve them so the bot can focus on what still matters.
 - **Help it with test failures.** Look at the CI failures yourself and tell the bot specifically how to fix them in a PR comment. The bot can struggle with planemo test failures that require domain knowledge or environment-specific context.
 - **CI failures not uploaded as artifacts are invisible to the bot.** The feedback flow reads CI failure details from GitHub Actions artifacts. If a failure isn't uploaded as an artifact (e.g. a missing dependency, a runner error), the bot can't see it — you need to describe it in a PR comment explicitly.
+
+## Tool Review
+
+The bot can review Galaxy tool wrapper PRs for correctness, convention compliance, completeness, test coverage, and potential issues. It works in two modes:
+
+### Standalone review
+
+Add the `review` label to any PR with tool files. The bot:
+1. Reads all tool files in the tool directory.
+2. Fetches exemplar IUC tools for comparison.
+3. Runs planemo lint/test if available.
+4. Posts structured findings as a PR comment, grouped by severity (critical/warning/suggestion) and category (validation, conventions, completeness, test_coverage, security_bugs, brittleness).
+
+This works on any PR — it doesn't matter whether the bot or a human created it.
+
+### Integrated self-review
+
+When `integrated_review_mode` is enabled in the config, the bot automatically reviews its own work after generate and feedback flows:
+
+1. After the main agent loop + validation completes, a review agent (with fresh context) reviews the generated/updated files.
+2. If the review finds critical or warning issues, the findings are fed back to the original agent as a user message (continuing from its conversation history — same pattern as validation retries).
+3. The agent gets up to `max_review_fix_rounds` rounds to fix the issues.
+4. Each fix round is followed by a re-review (fresh context) to check if the issues are resolved.
+
+Config options:
+```yaml
+integrated_review_mode: "on-validation-pass"  # or "never" (default) or "always"
+max_review_fix_rounds: 1  # number of review→fix rounds
+```
 
 ## Development
 

@@ -348,6 +348,56 @@ def address_feedback_cmd(pr_number: int, config_path: str, tool_dir: str, actor:
 
 
 @cli.command()
+@click.option("--pr", "pr_number", type=int, required=True, help="GitHub PR number")
+@click.option("--config", "config_path", type=click.Path(exists=True), default=".gxy-tool-bot.yml")
+@click.option("--tool-dir", "tool_dir", type=click.Path(), required=True, help="Path to the tool directory in the PR branch")
+@click.option("--actor", default=None, help="GitHub user who triggered the action (for maintainer check)")
+def review(pr_number: int, config_path: str, tool_dir: str, actor: str | None) -> None:
+    """Review tool files on a PR and post findings as a comment."""
+    from gxy_tool_bot.review import collect_review_context, format_review_comment, run_review
+
+    config = load_config(Path(config_path))
+    api_key = os.environ.get(config.api.api_key_env)
+    if not api_key:
+        click.echo(f"Error: {config.api.api_key_env} environment variable not set", err=True)
+        sys.exit(1)
+
+    gh_token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    if not gh_token:
+        click.echo("Error: GH_TOKEN environment variable not set", err=True)
+        sys.exit(1)
+
+    # Check allowed_maintainers if configured
+    if config.allowed_maintainers:
+        if not actor or actor not in config.allowed_maintainers:
+            who = actor or "unknown"
+            click.echo(f"Error: user '{who}' is not in allowed_maintainers list", err=True)
+            with GitHubClient(gh_token, config.repo) as gh:
+                gh.add_comment(pr_number, f"⚠️ Review blocked: user '{who}' is not in the allowed maintainers list.")
+            sys.exit(1)
+
+    with GitHubClient(gh_token, config.repo) as gh:
+        logger.info("Reviewing tool files on PR #%d", pr_number)
+        try:
+            ctx = collect_review_context(Path(tool_dir), config, gh=gh, pr_number=pr_number)
+            if not ctx.existing_files:
+                gh.add_comment(pr_number, f"⚠️ No tool files found in {tool_dir}. Nothing to review.")
+                click.echo(f"No tool files found in {tool_dir}", err=True)
+                sys.exit(1)
+
+            review_result = run_review(ctx, config, api_key, Path(tool_dir))
+        except Exception as exc:
+            logger.exception("Review failed")
+            gh.add_comment(pr_number, f"⚠️ Review failed: {exc}")
+            sys.exit(2)
+
+        comment = format_review_comment(review_result, Path(tool_dir).name)
+        gh.add_comment(pr_number, comment)
+
+    click.echo(f"Posted review on PR #{pr_number} ({len(review_result.findings)} findings)")
+
+
+@cli.command()
 @click.option("--config", "config_path", type=click.Path(exists=True), default=".gxy-tool-bot.yml")
 @click.option("--cases", "cases_dir", type=click.Path(exists=True), default="eval/cases/")
 @click.option("--filter", "filters", multiple=True, help="Filter cases: difficulty=easy, type=feedback, name=fix_*")

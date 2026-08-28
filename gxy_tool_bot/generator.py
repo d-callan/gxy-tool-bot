@@ -786,6 +786,25 @@ def generate_tool(
             max_iterations_override=max_iterations_override,
         )
 
+    # Integrated self-review: if enabled, run review on the generated files
+    # and give the agent fix rounds to address any findings.
+    if config.integrated_review_mode != "never" and config.max_review_fix_rounds > 0:
+        from gxy_tool_bot.review import run_integrated_review
+        files, result, validation, _review_result = run_integrated_review(
+            tool_dir=output_dir,
+            config=config,
+            api_key=api_key,
+            validation_passed=validation.valid,
+            file_writer=file_writer,
+            original_result=result,
+            original_files=files,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            tools=tools,
+            no_files_nudge=no_files_nudge,
+            plan_markdown=plan_markdown,
+        )
+
     generated = GeneratedTool(
         files=files,
         summary=result.content if result.terminated_naturally else f"⚠️ Incomplete: {result.content}",

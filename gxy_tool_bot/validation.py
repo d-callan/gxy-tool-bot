@@ -348,6 +348,7 @@ def run_agent_with_validation(
     no_files_nudge: str | None = None,
     write_tools: set[str] | None = None,
     max_iterations_override: int | None = None,
+    initial_messages: list[dict] | None = None,
 ) -> tuple[AgentResult, list[GeneratedFile], ValidationResult, int]:
     """
     Run the agent loop with validation retries. Shared by generate_tool and address_feedback.
@@ -359,6 +360,9 @@ def run_agent_with_validation(
     - max_iterations_override: when provided, use this iteration count instead of
       config.api.max_tool_iterations (used by generate_tool to scale iterations by
       the number of tool XMLs in the plan). When None, uses the config baseline.
+    - initial_messages: when provided, starts the agent from this conversation history
+      instead of a fresh system+user prompt. Used by the integrated review fix rounds
+      to continue from the original agent's conversation. When None, starts fresh.
     - Returns (final AgentResult, files, ValidationResult, validation_retries).
     """
     temperature = config.api.temperature_generate
@@ -374,6 +378,7 @@ def run_agent_with_validation(
         max_iterations=max_iterations,
         temperature=temperature,
         max_context_chars=max_context_chars,
+        messages=initial_messages,
     )
 
     files = [
