@@ -22,6 +22,10 @@ jobs:
       - run: pip install --no-cache-dir git+https://github.com/d-callan/gxy-tool-bot.git
       - if: ${{ inputs.run_planemo }}
         run: pip install "planemo>=0.75.43"
+      - name: Install micromamba
+        run: |
+          curl -Ls "https://micro.mamba.pm/api/micromamba/linux-64/latest" | tar -xvj -C /tmp
+          echo "/tmp/bin" >> $GITHUB_PATH
       - name: Run eval harness
         env:
           GXY_TOOL_BOT_API_KEY: ${{ secrets.GXY_TOOL_BOT_API_KEY }}

@@ -26,6 +26,10 @@ jobs:
           python-version: '3.12'
       - run: pip install --no-cache-dir gxy-tool-bot==0.1.2
       - run: pip install "planemo>=0.75.43"
+      - name: Install micromamba
+        run: |
+          curl -Ls "https://micro.mamba.pm/api/micromamba/linux-64/latest" | tar -xvj -C /tmp
+          echo "/tmp/bin" >> $GITHUB_PATH
       - name: Remove review label
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -36,5 +36,6 @@ Fix the issues identified in the feedback and CI failures. Use `write_file` to r
 - Do NOT call `set_tool_dir` — the tool directory is already set.
 - Write files FIRST. Do not spend all iterations researching. Fix the issues and write the corrected files immediately.
 - **After you finish, planemo lint and planemo test will run independently in CI.** If either fails, you will be asked to fix the issues and try again. If `planemo_lint` and `planemo_test` tools are available, use them to self-check before finishing.
+- If `run_in_conda` is available, you can use it to install the tool's bioconda package and run commands directly to debug test failures or verify CLI behavior. Use it sparingly — only when the CI output is genuinely unclear. Only bioconda packages are supported.
 {% include "_conventions.txt" %}
 

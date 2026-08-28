@@ -106,6 +106,14 @@ conda run -n gxy-tool-bot python -m pytest tests/ -v
 Validation tests are in `tests/test_generator.py` (they test
 `validate_generated_files` from `gxy_tool_bot/validation.py`).
 
+## CI Environment
+
+The CI workflows install `planemo` and `micromamba` (for the `run_in_conda` tool).
+Micromamba is installed from `https://micro.mamba.pm/api/micromamba/linux-64/latest`
+and added to `PATH`. The `run_in_conda` tool uses it to create cached conda
+environments from bioconda/conda-forge and run commands directly. If neither
+micromamba nor conda is available, the tool is not added to the agent's toolset.
+
 ## Eval Harness
 
 The eval harness (`gxy_tool_bot/eval_harness.py`) runs generate and feedback
@@ -150,7 +158,7 @@ When `integrated_review_mode` is enabled in config, `generate_tool` and `address
 
 ### Review agent tools
 
-The review agent has read-only tools only: `read_file`, `planemo_lint`, `planemo_test`, `search_github`, `search_web`, `search_bio_tools`. No write tools — it analyzes, doesn't fix. The fix is done by the original agent in the integrated fix rounds.
+The review agent has read-only tools only: `read_file`, `planemo_lint`, `planemo_test`, `run_in_conda`, `search_github`, `search_web`, `search_bio_tools`. No write tools — it analyzes, doesn't fix. The fix is done by the original agent in the integrated fix rounds.
 
 ### Findings format
 

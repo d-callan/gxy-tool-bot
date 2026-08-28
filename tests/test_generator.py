@@ -1395,6 +1395,174 @@ def test_planemo_tools_added_when_installed(tmp_path: Path) -> None:
     assert test_tool.timeout == 300
 
 
+def test_run_in_conda_success(tmp_path: Path) -> None:
+    """run_in_conda should install packages and run command, returning output."""
+    from unittest.mock import patch, MagicMock
+    import subprocess
+    fw = FileWriter(tmp_path)
+
+    # Simulate env not existing (so creation runs), then command succeeds
+    create_result = MagicMock()
+    create_result.returncode = 0
+    create_result.stdout = ""
+    create_result.stderr = ""
+
+    cmd_result = MagicMock()
+    cmd_result.stdout = "samtools 1.21"
+    cmd_result.stderr = ""
+    cmd_result.returncode = 0
+
+    def _mock_run(cmd, **kwargs):
+        # First call: env creation; second call: command
+        if "create" in cmd:
+            return create_result
+        return cmd_result
+
+    with patch("gxy_tool_bot.generator.shutil.which", return_value="/usr/bin/micromamba"):
+        with patch("subprocess.run", side_effect=_mock_run):
+            result = fw.run_in_conda({"packages": ["samtools=1.21"], "command": "samtools --version"})
+
+    assert "samtools 1.21" in result
+    assert "exit code: 0" in result
+
+
+def test_run_in_conda_env_caching(tmp_path: Path) -> None:
+    """run_in_conda should skip env creation when env already exists."""
+    from unittest.mock import patch, MagicMock
+    fw = FileWriter(tmp_path)
+
+    # Pre-create the env directory so creation is skipped
+    import hashlib
+    import tempfile
+    from pathlib import Path as P
+    env_key = hashlib.sha256("samtools=1.21".encode()).hexdigest()[:16]
+    env_path = P(tempfile.gettempdir()) / f"gxy_conda_{env_key}"
+    (env_path / "bin").mkdir(parents=True, exist_ok=True)
+
+    cmd_result = MagicMock()
+    cmd_result.stdout = "ok"
+    cmd_result.stderr = ""
+    cmd_result.returncode = 0
+
+    call_count = 0
+
+    def _mock_run(cmd, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        # If this is env creation, that's a bug — env should be cached
+        assert "create" not in cmd, "Env creation should be skipped when env exists"
+        return cmd_result
+
+    with patch("gxy_tool_bot.generator.shutil.which", return_value="/usr/bin/micromamba"):
+        with patch("subprocess.run", side_effect=_mock_run):
+            result = fw.run_in_conda({"packages": ["samtools=1.21"], "command": "echo ok"})
+
+    assert "ok" in result
+    assert call_count == 1  # only the command, not env creation
+
+    # Cleanup
+    import shutil as _shutil
+    _shutil.rmtree(env_path, ignore_errors=True)
+
+
+def test_run_in_conda_env_creation_failure(tmp_path: Path) -> None:
+    """run_in_conda should report error when env creation fails."""
+    from unittest.mock import patch, MagicMock
+    fw = FileWriter(tmp_path)
+
+    create_result = MagicMock()
+    create_result.returncode = 1
+    create_result.stdout = ""
+    create_result.stderr = "package not found"
+
+    with patch("gxy_tool_bot.generator.shutil.which", return_value="/usr/bin/micromamba"):
+        with patch("subprocess.run", return_value=create_result):
+            result = fw.run_in_conda({"packages": ["nonexistent_pkg"], "command": "echo hi"})
+
+    assert "Error" in result
+    assert "package not found" in result
+
+
+def test_run_in_conda_timeout(tmp_path: Path) -> None:
+    """run_in_conda should handle command timeout gracefully."""
+    from unittest.mock import patch
+    import subprocess
+    fw = FileWriter(tmp_path)
+
+    # Pre-create env to skip creation
+    import hashlib
+    import tempfile
+    from pathlib import Path as P
+    env_key = hashlib.sha256("samtools".encode()).hexdigest()[:16]
+    env_path = P(tempfile.gettempdir()) / f"gxy_conda_{env_key}"
+    (env_path / "bin").mkdir(parents=True, exist_ok=True)
+
+    with patch("gxy_tool_bot.generator.shutil.which", return_value="/usr/bin/micromamba"):
+        with patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="samtools", timeout=120)):
+            result = fw.run_in_conda({"packages": ["samtools"], "command": "samtools view"})
+
+    assert "Error" in result
+    assert "timed out" in result
+
+    # Cleanup
+    import shutil as _shutil
+    _shutil.rmtree(env_path, ignore_errors=True)
+
+
+def test_run_in_conda_no_conda(tmp_path: Path) -> None:
+    """run_in_conda should error when neither micromamba nor conda is installed."""
+    from unittest.mock import patch
+    fw = FileWriter(tmp_path)
+
+    with patch("gxy_tool_bot.generator.shutil.which", return_value=None):
+        result = fw.run_in_conda({"packages": ["samtools"], "command": "samtools --version"})
+
+    assert "Error" in result
+    assert "micromamba" in result or "conda" in result
+
+
+def test_run_in_conda_missing_packages(tmp_path: Path) -> None:
+    """run_in_conda should error when packages is missing or empty."""
+    fw = FileWriter(tmp_path)
+    result = fw.run_in_conda({"command": "echo hi"})
+    assert "Error" in result
+    assert "packages" in result
+
+
+def test_run_in_conda_missing_command(tmp_path: Path) -> None:
+    """run_in_conda should error when command is missing."""
+    fw = FileWriter(tmp_path)
+    result = fw.run_in_conda({"packages": ["samtools"]})
+    assert "Error" in result
+    assert "command" in result
+
+
+def test_run_in_conda_tool_not_added_when_not_installed(tmp_path: Path) -> None:
+    """_build_tool_definitions should not add run_in_conda when no conda frontend is installed."""
+    from unittest.mock import patch
+    fw = FileWriter(tmp_path)
+    with patch("gxy_tool_bot.generator.shutil.which", return_value=None):
+        tools = _build_tool_definitions(fw)
+    tool_names = [t.name for t in tools]
+    assert "run_in_conda" not in tool_names
+
+
+def test_run_in_conda_tool_added_when_installed(tmp_path: Path) -> None:
+    """_build_tool_definitions should add run_in_conda when micromamba is installed."""
+    from unittest.mock import patch
+
+    def _which(name, *args, **kwargs):
+        return "/usr/bin/micromamba" if name == "micromamba" else None
+
+    fw = FileWriter(tmp_path)
+    with patch("gxy_tool_bot.generator.shutil.which", side_effect=_which):
+        tools = _build_tool_definitions(fw)
+    tool_names = [t.name for t in tools]
+    assert "run_in_conda" in tool_names
+    conda_tool = next(t for t in tools if t.name == "run_in_conda")
+    assert conda_tool.timeout == 360
+
+
 def test_add_agent_notes_generation_creates_file(tmp_path: Path) -> None:
     """In generate mode, first call creates .agent-notes with a Generation notes section."""
     fw = FileWriter(tmp_path)

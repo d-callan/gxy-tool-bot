@@ -52,6 +52,7 @@ No issues found. The tool files look good.
 - If a `.agent-notes` file is present, read it for context on non-obvious decisions made by the writer. Use it to understand rationale, but still flag issues — notes explain decisions, they don't excuse problems.
 - If a plan/spec is provided, check that every input, output, parameter, and test case described in the plan is implemented in the tool files. Report missing items as `completeness` findings.
 - Use `planemo_lint` and `planemo_test` if available to catch issues automatically.
+- If `run_in_conda` is available, you can use it to install the tool's bioconda package and run commands (e.g. `--help`) to verify CLI flags or check output formats. Only bioconda packages are supported.
 - Compare the tool files against the exemplars — note significant deviations from IUC patterns.
 - Be specific: reference exact file paths and line numbers when possible.
 - Be concise: one finding per issue, clear description, actionable suggestion.

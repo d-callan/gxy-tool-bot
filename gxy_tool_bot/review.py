@@ -388,6 +388,40 @@ def _build_review_tool_definitions(file_writer: FileWriter) -> list[ToolDefiniti
             timeout=300,
         ))
 
+    if shutil.which("micromamba") or shutil.which("conda"):
+        tools.append(ToolDefinition(
+            name="run_in_conda",
+            description=(
+                "Install conda packages from bioconda/conda-forge and run a command. "
+                "Creates a cached environment (reused across calls with the same packages). "
+                "The command runs in the tool directory so test data is accessible. "
+                "Use this to verify CLI flags, inspect output formats, or check command behavior. "
+                "Only bioconda packages are supported — tools not in bioconda cannot be test-run. "
+                "Use search_bioconda first to verify a package exists."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "packages": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Conda package specs, e.g. [\"samtools=1.21\"] or [\"bcftools\", \"htslib\"]",
+                    },
+                    "command": {
+                        "type": "string",
+                        "description": "Shell command to run, e.g. 'samtools --help' or 'samtools view test-data/sample.bam | head'",
+                    },
+                    "timeout": {
+                        "type": "integer",
+                        "description": "Command timeout in seconds (default 120, max 300)",
+                    },
+                },
+                "required": ["packages", "command"],
+            },
+            handler=file_writer.run_in_conda,
+            timeout=360,
+        ))
+
     return tools
 
 

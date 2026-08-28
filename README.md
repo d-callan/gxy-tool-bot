@@ -167,6 +167,10 @@ The validation loop only runs a limited number of times before forcing the resul
 
 Things planemo already checks (XML well-formedness, shed metadata, duplicated output labels) are deliberately not duplicated in validation. The CI workflow reports these failures and the feedback flow picks them up on the next iteration. Only add a validation check if the bot is consistently making a specific mistake that wastes tokens and maintainer time.
 
+### Direct CLI testing with run_in_conda
+
+When `micromamba` or `conda` is available (installed automatically in CI), the bot has a `run_in_conda` tool that installs bioconda packages and runs commands directly — e.g. `samtools --help` to verify CLI flags, or `samtools view test-data/sample.bam | head` to inspect output format. This is useful when documentation is weak or planemo test output is hard to interpret. Environments are cached by package spec, so repeated calls with the same packages reuse the env. Only bioconda packages are supported; tools available exclusively as Docker/Singularity images cannot be test-run this way.
+
 ### Give the agent a way out
 
 The agent has a `give_up` tool that lets it stop and explain why it can't proceed — open assumptions, unresolved questions, or fundamental issues with the request. A tool request might produce a recommendation not to make a tool rather than a plan to make one. A feedback request might result in push back with no commit until something the agent flags is resolved. This prevents forcing the agent into action when it doesn't have enough information, which would produce low-quality output. Better to surface the problem to a human than to generate a confident but wrong tool wrapper.

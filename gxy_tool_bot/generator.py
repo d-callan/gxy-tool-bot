@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -356,6 +357,86 @@ class FileWriter:
         logger.info("compress_file: %s -> %s (%d -> %d bytes)", path, gz_path, len(content_bytes), len(compressed))
         return f"File compressed: {path} -> {gz_path} ({len(content_bytes)} -> {len(compressed)} bytes)"
 
+    def run_in_conda(self, args: dict) -> str:
+        """Install conda packages from bioconda/conda-forge and run a command.
+
+        Creates a cached conda environment (keyed by sorted package specs) in the
+        system temp directory, then runs the command with the env's bin/ on PATH.
+        The command runs in the output directory so test data is accessible.
+
+        Only bioconda packages are supported — tools available only as
+        Docker/Singularity images (not in bioconda) cannot be test-run this way.
+        Use search_bioconda to verify a package exists before calling this.
+        """
+        packages = args.get("packages", [])
+        command = args.get("command", "")
+        timeout = min(args.get("timeout", 120), 300)
+
+        if not packages or not isinstance(packages, list):
+            return "Error: packages (list of conda specs) is required"
+        if not command:
+            return "Error: command is required"
+
+        # Pick the fastest available conda frontend
+        micromamba = shutil.which("micromamba")
+        conda = shutil.which("conda")
+        if not micromamba and not conda:
+            return "Error: neither micromamba nor conda is installed"
+
+        # Cached env path keyed by sorted package specs
+        env_key = hashlib.sha256(
+            "|".join(sorted(packages)).encode()
+        ).hexdigest()[:16]
+        env_path = Path(tempfile.gettempdir()) / f"gxy_conda_{env_key}"
+
+        # Create env if it doesn't exist (or is incomplete)
+        if not (env_path / "bin").exists():
+            if micromamba:
+                create_cmd = [
+                    micromamba, "create", "-y", "-p", str(env_path),
+                    "-c", "bioconda", "-c", "conda-forge",
+                    *packages,
+                ]
+            else:
+                create_cmd = [
+                    conda, "create", "-y", "-p", str(env_path),
+                    "-c", "bioconda", "-c", "conda-forge",
+                    *packages,
+                ]
+            try:
+                result = subprocess.run(
+                    create_cmd, capture_output=True, text=True, timeout=300,
+                )
+                if result.returncode != 0:
+                    err = (result.stderr + result.stdout)[-2000:]
+                    return f"Error creating conda env: {err}"
+            except subprocess.TimeoutExpired:
+                return "Error: conda env creation timed out after 300s"
+            except Exception as e:
+                return f"Error creating conda env: {e}"
+
+        # Run the command with the env's bin/ prepended to PATH
+        env = os.environ.copy()
+        env["PATH"] = str(env_path / "bin") + os.pathsep + env.get("PATH", "")
+
+        try:
+            result = subprocess.run(
+                command, shell=True, capture_output=True, text=True,
+                timeout=timeout, cwd=str(self.output_dir), env=env,
+            )
+            output = result.stdout
+            if result.stderr:
+                output += f"\n[stderr]\n{result.stderr}"
+            output += f"\n[exit code: {result.returncode}]"
+            if len(output) > 10000:
+                output = output[:10000] + "\n... [truncated]\n"
+            logger.info("run_in_conda: %s (exit %d)", command[:80], result.returncode)
+            return output
+        except subprocess.TimeoutExpired:
+            return f"Error: command timed out after {timeout}s"
+        except Exception as e:
+            return f"Error: {e}"
+
     def download_file_handler(self, args: dict) -> str:
         url = args.get("url", "")
         dest_path = args.get("path", "")
@@ -653,6 +734,42 @@ def _build_tool_definitions(file_writer: FileWriter, config: BotConfig | None = 
             },
             handler=file_writer.planemo_test,
             timeout=300,
+        ))
+
+    if shutil.which("micromamba") or shutil.which("conda"):
+        tools.append(ToolDefinition(
+            name="run_in_conda",
+            description=(
+                "Install conda packages from bioconda/conda-forge and run a command. "
+                "Creates a cached environment (reused across calls with the same packages). "
+                "The command runs in the output directory so test data is accessible. "
+                "Use this to verify CLI flags, inspect output formats, or debug test failures "
+                "when documentation is unclear or planemo test output is hard to interpret. "
+                "Only bioconda packages are supported — tools not in bioconda cannot be test-run. "
+                "Use search_bioconda first to verify a package exists. "
+                "Use sparingly: the plan and exemplars should have most of what you need."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "packages": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Conda package specs, e.g. [\"samtools=1.21\"] or [\"bcftools\", \"htslib\"]",
+                    },
+                    "command": {
+                        "type": "string",
+                        "description": "Shell command to run, e.g. 'samtools --help' or 'samtools view test-data/sample.bam | head'",
+                    },
+                    "timeout": {
+                        "type": "integer",
+                        "description": "Command timeout in seconds (default 120, max 300)",
+                    },
+                },
+                "required": ["packages", "command"],
+            },
+            handler=file_writer.run_in_conda,
+            timeout=360,
         ))
 
     return tools
