@@ -172,6 +172,52 @@ The bot is automated but not magic. It implements what's requested — it doesn'
 
 See [DEVELOPMENT.md](DEVELOPMENT.md) for guidance on the codebase structure, where to add new conventions (prompts vs. validation vs. let CI catch it), and how the generation and feedback flows are organized.
 
+## Eval Harness
+
+The eval harness measures how well the bot generates tools and addresses feedback across a range of difficulty tiers. It runs real LLM calls against a set of eval cases (YAML + reference files) and reports validation pass rates, planemo lint/test results, iteration counts, and structural file correctness.
+
+### Running locally
+
+```bash
+# Run all cases
+gxy-tool-bot eval --config .gxy-tool-bot.yml --cases eval/cases/ --output eval-results.json
+
+# Run only easy feedback cases
+gxy-tool-bot eval --config .gxy-tool-bot.yml --cases eval/cases/ --filter difficulty=easy --filter type=feedback
+
+# Run a specific case by name (glob)
+gxy-tool-bot eval --config .gxy-tool-bot.yml --cases eval/cases/ --filter name=fb_fix_*
+
+# Skip planemo checks (faster, no planemo install needed)
+gxy-tool-bot eval --config .gxy-tool-bot.yml --cases eval/cases/ --no-planemo
+```
+
+The `--filter` option can be repeated to combine filters (different keys are AND'd, same key is OR'd). Supported keys: `name` (glob pattern), `type` (`generate` or `feedback`), `difficulty` (`easy`, `medium`, `hard`).
+
+Results are printed as a table to stdout and optionally written as JSON to `--output`.
+
+### Running in CI
+
+A manual dispatch workflow (`workflows/eval.yml`) runs the eval harness in GitHub Actions. Trigger it from the Actions tab with optional filter and planemo inputs. Results are uploaded as an artifact.
+
+### Eval cases
+
+Cases live in `eval/cases/<case_name>/` directories, each with a `case.yml` and supporting files:
+
+- **Generate cases:** a `plan.md` fed to the generation pipeline, plus assertions on the output files.
+- **Feedback cases:** "broken" tool files representing the PR state, plus simulated reviewer comments and CI failures, plus assertions on the expected fixes.
+
+Cases are tiered by difficulty:
+- **easy:** Cases the bot should consistently ace (simple tools, obvious fixes). Baseline for regression detection.
+- **medium:** Multi-param tools, feedback with multiple comments. Should mostly pass.
+- **hard:** Tool families (4+ XMLs), conflicting/naive reviewer suggestions, multi-issue feedback. Should struggle — improvements here are meaningful.
+
+### Adding a new eval case
+
+1. Create `eval/cases/<case_name>/case.yml` with metadata, assertions, and (for feedback) simulated feedback.
+2. Add supporting files (`plan.md` for generate, broken tool files for feedback).
+3. Run `gxy-tool-bot eval --cases eval/cases/ --filter name=<case_name>` to test it.
+
 ## License
 
 MIT

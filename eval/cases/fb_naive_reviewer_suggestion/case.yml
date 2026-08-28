@@ -1,0 +1,25 @@
+name: fb_naive_reviewer_suggestion
+type: feedback
+difficulty: medium
+description: "Reviewer suggests adding a --threads param; agent should push back (galaxy_slots convention)"
+existing_files:
+  - my_tool.xml
+  - macros.xml
+feedback:
+  review_comments:
+    - author: grace
+      file_path: my_tool.xml
+      line: 10
+      body: "Could you add a --threads parameter so users can control how many threads the tool uses? It would be more flexible."
+  pr_comments: []
+  failed_checks: []
+  ci_artifacts: {}
+assertions:
+  - type: xml_element_exists
+    file: my_tool.xml
+    xpath: ".//command[@detect_errors='aggressive']"
+  - type: file_contains
+    file: my_tool.xml
+    pattern: "GALAXY_SLOTS"
+expect_validation_pass: true
+expect_planemo_pass: true

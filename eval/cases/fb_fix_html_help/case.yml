@@ -1,0 +1,30 @@
+name: fb_fix_html_help
+type: feedback
+difficulty: easy
+description: "Help section uses HTML instead of Markdown — reviewer + CI flag it"
+existing_files:
+  - my_tool.xml
+  - macros.xml
+feedback:
+  review_comments:
+    - author: carol
+      file_path: my_tool.xml
+      line: 22
+      body: "The help section uses HTML tags. Galaxy help should be in Markdown format. Please replace the HTML with Markdown."
+  pr_comments: []
+  failed_checks:
+    - name: planemo-lint
+      conclusion: failure
+      output: "Linting tool my_tool.xml\n.. WARNING (HelpInvalidRST): Invalid reStructuredText found in help"
+  ci_artifacts: {}
+assertions:
+  - type: xml_attribute_equals
+    file: my_tool.xml
+    xpath: ".//help"
+    attribute: format
+    value: markdown
+  - type: file_contains
+    file: my_tool.xml
+    pattern: "\\*\\*"
+expect_validation_pass: true
+expect_planemo_pass: true

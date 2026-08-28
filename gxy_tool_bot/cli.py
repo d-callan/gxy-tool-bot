@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import sys
 from pathlib import Path
 
@@ -344,6 +345,65 @@ def address_feedback_cmd(pr_number: int, config_path: str, tool_dir: str, actor:
                 logger.warning("Failed to generate commit message: %s", e)
 
     click.echo(f"Addressed feedback on PR #{pr_number}")
+
+
+@cli.command()
+@click.option("--config", "config_path", type=click.Path(exists=True), default=".gxy-tool-bot.yml")
+@click.option("--cases", "cases_dir", type=click.Path(exists=True), default="eval/cases/")
+@click.option("--filter", "filters", multiple=True, help="Filter cases: difficulty=easy, type=feedback, name=fix_*")
+@click.option("--output", "output_path", type=click.Path(), default=None, help="Write JSON report to this path")
+@click.option("--work-dir", "work_dir", type=click.Path(), default=None, help="Working directory for generated files (default: temp)")
+@click.option("--no-planemo", is_flag=True, help="Skip planemo lint/test checks")
+def eval(config_path: str, cases_dir: str, filters: tuple[str, ...], output_path: str | None, work_dir: str | None, no_planemo: bool) -> None:
+    """Run eval cases against real LLM calls and report results."""
+    import tempfile
+    from gxy_tool_bot.eval_harness import (
+        format_report_text,
+        load_cases,
+        run_eval,
+    )
+
+    config = load_config(Path(config_path))
+    api_key = os.environ.get(config.api.api_key_env)
+    if not api_key:
+        click.echo(f"Error: {config.api.api_key_env} environment variable not set", err=True)
+        sys.exit(1)
+
+    cases = load_cases(Path(cases_dir), list(filters) if filters else None)
+    if not cases:
+        click.echo(f"No eval cases found in {cases_dir}" + (f" matching filters {list(filters)}" if filters else ""), err=True)
+        sys.exit(1)
+
+    click.echo(f"Running {len(cases)} eval case(s)...")
+    for c in cases:
+        click.echo(f"  - {c.name} ({c.type}, {c.difficulty})")
+
+    if work_dir:
+        work_path = Path(work_dir)
+        work_path.mkdir(parents=True, exist_ok=True)
+        cleanup = False
+    else:
+        work_path = Path(tempfile.mkdtemp(prefix="gxy-eval-"))
+        cleanup = True
+
+    try:
+        report = run_eval(cases, config, api_key, work_path, run_planemo=not no_planemo)
+    finally:
+        if cleanup:
+            shutil.rmtree(work_path, ignore_errors=True)
+
+    click.echo()
+    click.echo(format_report_text(report))
+
+    if output_path:
+        Path(output_path).write_text(json.dumps(report.to_dict(), indent=2))
+        click.echo(f"\nJSON report written to {output_path}")
+
+    # Exit with non-zero if any case failed
+    failed = sum(1 for r in report.results if not r.passed)
+    if failed:
+        click.echo(f"\n{failed} case(s) failed", err=True)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

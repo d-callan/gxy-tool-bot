@@ -293,7 +293,7 @@ def address_feedback(
     )
 
     with ApiClient(config.api.base_url, api_key, config.api.model, read_timeout=config.api.read_timeout, fallback_models=config.api.fallback_models) as client:
-        result, files, validation = run_agent_with_validation(
+        result, files, validation, _validation_retries = run_agent_with_validation(
             client=client,
             system_prompt=system_prompt,
             user_prompt=user_prompt,

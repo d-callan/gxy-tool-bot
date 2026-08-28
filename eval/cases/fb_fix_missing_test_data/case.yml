@@ -1,0 +1,24 @@
+name: fb_fix_missing_test_data
+type: feedback
+difficulty: easy
+description: "Test references a file that wasn't generated — reviewer + CI flag it"
+existing_files:
+  - my_tool.xml
+  - macros.xml
+feedback:
+  review_comments:
+    - author: bob
+      file_path: my_tool.xml
+      line: 18
+      body: "The test references 'test-data/sample.fasta' but this file is missing from the PR. Please add it."
+  pr_comments: []
+  failed_checks:
+    - name: validation
+      conclusion: failure
+      output: "Test data file 'test-data/sample.fasta' referenced in my_tool.xml but not generated"
+  ci_artifacts: {}
+assertions:
+  - type: file_exists
+    file: test-data/sample.fasta
+expect_validation_pass: true
+expect_planemo_pass: true

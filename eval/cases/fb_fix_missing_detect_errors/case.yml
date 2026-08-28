@@ -1,0 +1,22 @@
+name: fb_fix_missing_detect_errors
+type: feedback
+difficulty: easy
+description: "Command missing detect_errors=aggressive — reviewer flags it"
+existing_files:
+  - my_tool.xml
+  - macros.xml
+feedback:
+  review_comments:
+    - author: dave
+      file_path: my_tool.xml
+      line: 7
+      body: "The command element is missing detect_errors=\"aggressive\". This is required for proper error detection in IUC tools."
+  pr_comments: []
+  failed_checks: []
+  ci_artifacts: {}
+assertions:
+  - type: xml_element_exists
+    file: my_tool.xml
+    xpath: ".//command[@detect_errors='aggressive']"
+expect_validation_pass: true
+expect_planemo_pass: true

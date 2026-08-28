@@ -1,0 +1,43 @@
+name: fb_multiple_lint_warnings
+type: feedback
+difficulty: medium
+description: "Several lint issues in one file — reviewer + CI flag multiple problems"
+existing_files:
+  - my_tool.xml
+  - macros.xml
+feedback:
+  review_comments:
+    - author: eve
+      file_path: my_tool.xml
+      line: 7
+      body: "Command is missing detect_errors=\"aggressive\"."
+    - author: eve
+      file_path: my_tool.xml
+      line: 22
+      body: "Help section uses HTML tags — should be Markdown."
+    - author: eve
+      file_path: my_tool.xml
+      line: 15
+      body: "The test is missing expect_num_outputs attribute."
+  pr_comments:
+    - author: frank
+      body: "Multiple lint issues to fix. Please address all of them before we can merge."
+  failed_checks:
+    - name: planemo-lint
+      conclusion: failure
+      output: "Linting tool my_tool.xml\n.. WARNING: detect_errors not set\n.. WARNING: HelpInvalidRST\n.. WARNING: missing expect_num_outputs"
+  ci_artifacts: {}
+assertions:
+  - type: xml_element_exists
+    file: my_tool.xml
+    xpath: ".//command[@detect_errors='aggressive']"
+  - type: xml_element_exists
+    file: my_tool.xml
+    xpath: ".//test[@expect_num_outputs]"
+  - type: xml_attribute_equals
+    file: my_tool.xml
+    xpath: ".//help"
+    attribute: format
+    value: markdown
+expect_validation_pass: true
+expect_planemo_pass: true

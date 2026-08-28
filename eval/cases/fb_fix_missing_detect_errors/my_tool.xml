@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<tool id="my_tool" name="My Tool" version="@TOOL_VERSION@+galaxy0">
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <command>my_tool --input $input --output $output</command>
+    <inputs>
+        <param name="input" type="data" format="fasta"/>
+    </inputs>
+    <outputs>
+        <data name="output" format="fasta"/>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="1">
+            <param name="input" value="sample.fasta"/>
+        </test>
+    </tests>
+    <help format="markdown">Help</help>
+    <xrefs><xref type="bio.tools">my_tool</xref></xrefs>
+</tool>

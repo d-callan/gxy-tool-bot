@@ -1,0 +1,30 @@
+name: fb_conflicting_feedback
+type: feedback
+difficulty: hard
+description: "Reviewer asks for a --threads param, CI says the tool uses GALAXY_SLOTS — agent must reconcile"
+existing_files:
+  - my_tool.xml
+  - macros.xml
+feedback:
+  review_comments:
+    - author: heidi
+      file_path: my_tool.xml
+      line: 7
+      body: "Please add a --threads parameter so users can control thread count."
+  pr_comments:
+    - author: ivan
+      body: "Actually, IUC convention is to use $GALAXY_SLOTS and not expose threading to the user. Don't add a --threads param."
+  failed_checks:
+    - name: planemo-test
+      conclusion: failure
+      output: "Tool test failed: my_tool expects --threads flag but it was not provided"
+  ci_artifacts: {}
+assertions:
+  - type: file_contains
+    file: my_tool.xml
+    pattern: "GALAXY_SLOTS"
+  - type: xml_element_exists
+    file: my_tool.xml
+    xpath: ".//command[@detect_errors='aggressive']"
+expect_validation_pass: true
+expect_planemo_pass: true

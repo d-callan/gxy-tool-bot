@@ -1,0 +1,55 @@
+name: fb_multi_round_simulation
+type: feedback
+difficulty: hard
+description: "Simulates a complex feedback scenario: missing macro + HTML help + missing test data + naive reviewer suggestion"
+existing_files:
+  - my_tool.xml
+  - macros.xml
+feedback:
+  review_comments:
+    - author: judy
+      file_path: my_tool.xml
+      line: 5
+      body: "The 'requirements' macro is referenced but not defined in macros.xml."
+    - author: judy
+      file_path: my_tool.xml
+      line: 20
+      body: "Help section uses HTML tags. Please use Markdown."
+    - author: karl
+      file_path: my_tool.xml
+      line: 15
+      body: "Test references 'sample.fasta' but the file is missing."
+    - author: lena
+      file_path: my_tool.xml
+      line: 7
+      body: "Could you add a --threads parameter for flexibility?"
+  pr_comments:
+    - author: judy
+      body: "Multiple issues to fix. The macro definition, help format, and missing test data are blockers. The threads suggestion is optional — use your judgment on IUC conventions."
+  failed_checks:
+    - name: planemo-lint
+      conclusion: failure
+      output: "Linting tool my_tool.xml\n.. ERROR: Macro 'requirements' not defined\n.. WARNING: HelpInvalidRST"
+    - name: validation
+      conclusion: failure
+      output: "Test data file 'test-data/sample.fasta' referenced but not generated"
+  ci_artifacts: {}
+assertions:
+  - type: xml_element_exists
+    file: macros.xml
+    xpath: ".//xml[@name='requirements']"
+  - type: xml_attribute_equals
+    file: my_tool.xml
+    xpath: ".//help"
+    attribute: format
+    value: markdown
+  - type: file_exists
+    file: test-data/sample.fasta
+  - type: xml_element_exists
+    file: my_tool.xml
+    xpath: ".//command[@detect_errors='aggressive']"
+  - type: file_contains
+    file: my_tool.xml
+    pattern: "GALAXY_SLOTS"
+expect_validation_pass: true
+expect_planemo_pass: true

@@ -1,0 +1,76 @@
+on:
+  workflow_dispatch:
+    inputs:
+      cases_filter:
+        description: "Filter cases (e.g. difficulty=easy, type=feedback, name=fix_*)"
+        required: false
+        default: ""
+      run_planemo:
+        description: "Run planemo lint/test checks"
+        type: boolean
+        default: true
+
+jobs:
+  eval:
+    name: Run Eval Harness
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install --no-cache-dir git+https://github.com/d-callan/gxy-tool-bot.git
+      - if: ${{ inputs.run_planemo }}
+        run: pip install "planemo>=0.75.43"
+      - name: Run eval harness
+        env:
+          GXY_TOOL_BOT_API_KEY: ${{ secrets.GXY_TOOL_BOT_API_KEY }}
+          GXY_TOOL_BOT_API_KEY_CZ: ${{ secrets.GXY_TOOL_BOT_API_KEY_CZ }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          FILTER_ARGS=""
+          if [ -n "${{ inputs.cases_filter }}" ]; then
+            # Split comma-separated filters into multiple --filter args
+            IFS=',' read -ra FILTERS <<< "${{ inputs.cases_filter }}"
+            for f in "${FILTERS[@]}"; do
+              FILTER_ARGS="$FILTER_ARGS --filter $f"
+            done
+          fi
+          PLANEMO_FLAG=""
+          if [ "${{ inputs.run_planemo }}" != "true" ]; then
+            PLANEMO_FLAG="--no-planemo"
+          fi
+          gxy-tool-bot eval \
+            --config .gxy-tool-bot.yml \
+            --cases eval/cases/ \
+            --output eval-results.json \
+            --work-dir /tmp/eval-work \
+            $FILTER_ARGS $PLANEMO_FLAG
+      - name: Upload eval results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-results
+          path: eval-results.json
+      - name: Post summary
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -f eval-results.json ]; then
+            SUMMARY=$(python3 -c "
+          import json
+          with open('eval-results.json') as f:
+              data = json.load(f)
+          s = data.get('summary', {})
+          ov = s.get('overall', {})
+          print(f\"Eval complete: {ov.get('pass_rate', 0) * 100:.1f}% pass rate ({ov.get('count', 0)} cases)\")
+          for label, key in [('By difficulty', 'by_difficulty'), ('By type', 'by_type')]:
+              print(f\"  {label}:\")
+              for k, v in s.get(key, {}).items():
+                  if v.get('count', 0) > 0:
+                      print(f\"    {k}: {v['pass_rate'] * 100:.1f}% ({v['count']} cases)\")
+          ")
+            fi
+            echo "$SUMMARY"
+          fi

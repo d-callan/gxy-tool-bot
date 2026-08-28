@@ -102,3 +102,27 @@ conda run -n gxy-tool-bot python -m pytest tests/ -v
 
 Validation tests are in `tests/test_generator.py` (they test
 `validate_generated_files` from `gxy_tool_bot/validation.py`).
+
+## Eval Harness
+
+The eval harness (`gxy_tool_bot/eval_harness.py`) runs generate and feedback
+cases against real LLM calls to measure bot performance. See the [README](README.md#eval-harness)
+for usage details.
+
+### Key files
+
+| File | Purpose |
+|------|---------|
+| `gxy_tool_bot/eval_harness.py` | Core eval harness: case loading, case runners, assertions, report generation |
+| `gxy_tool_bot/cli.py` (`eval` command) | CLI entry point for running evals |
+| `eval/cases/` | Eval case fixtures (YAML + supporting files) |
+| `workflows/eval.yml` | CI workflow for manual eval runs |
+| `tests/test_eval_harness.py` | Unit tests for the harness (case loading, assertions, summaries) |
+
+### How it works
+
+- **Generate cases** call `generate_tool()` directly with a plan from the case fixture, then run assertions and (optionally) planemo on the output.
+- **Feedback cases** construct a `FeedbackContext` from the case YAML (simulated reviewer comments + CI failures), then call `run_agent_with_validation()` directly — no real GitHub PR needed.
+- Both paths reuse the real production code, so eval results reflect actual bot behavior.
+- The harness measures: validation pass/fail, planemo lint/test pass/fail, agent iteration count, validation retry count, and structural assertions (XML element existence, file content patterns, etc.).
+- `run_agent_with_validation` now returns a 4th value (`validation_retries: int`) — both `generate_tool` and `address_feedback` unpack it.

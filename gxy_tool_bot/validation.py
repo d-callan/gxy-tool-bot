@@ -348,7 +348,7 @@ def run_agent_with_validation(
     no_files_nudge: str | None = None,
     write_tools: set[str] | None = None,
     max_iterations_override: int | None = None,
-) -> tuple[AgentResult, list[GeneratedFile], ValidationResult]:
+) -> tuple[AgentResult, list[GeneratedFile], ValidationResult, int]:
     """
     Run the agent loop with validation retries. Shared by generate_tool and address_feedback.
 
@@ -359,7 +359,7 @@ def run_agent_with_validation(
     - max_iterations_override: when provided, use this iteration count instead of
       config.api.max_tool_iterations (used by generate_tool to scale iterations by
       the number of tool XMLs in the plan). When None, uses the config baseline.
-    - Returns (final AgentResult, files, ValidationResult).
+    - Returns (final AgentResult, files, ValidationResult, validation_retries).
     """
     temperature = config.api.temperature_generate
     max_iterations = max_iterations_override if max_iterations_override is not None else config.api.max_tool_iterations
@@ -381,6 +381,7 @@ def run_agent_with_validation(
         for p, c in sorted(file_writer.files.items())
     ]
     validation = validate_generated_files(files)
+    validation_retries = 0
 
     for retry in range(max_validation_retries):
         if validation.valid:
@@ -391,6 +392,7 @@ def run_agent_with_validation(
             logger.warning("Agent gave up: %s", file_writer.give_up_reason)
             break
 
+        validation_retries = retry + 1
         logger.warning(
             "Validation errors (attempt %d/%d): %s",
             retry + 1, max_validation_retries, validation.errors,
@@ -466,4 +468,4 @@ def run_agent_with_validation(
     if not validation.valid:
         logger.warning("Validation errors after %d retries: %s", max_validation_retries, validation.errors)
 
-    return result, files, validation
+    return result, files, validation, validation_retries
