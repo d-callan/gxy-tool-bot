@@ -348,6 +348,7 @@ def run_agent_with_validation(
     no_files_nudge: str | None = None,
     write_tools: set[str] | None = None,
     max_iterations_override: int | None = None,
+    max_validation_retries_override: int | None = None,
     initial_messages: list[dict] | None = None,
 ) -> tuple[AgentResult, list[GeneratedFile], ValidationResult, int]:
     """
@@ -360,6 +361,9 @@ def run_agent_with_validation(
     - max_iterations_override: when provided, use this iteration count instead of
       config.api.max_tool_iterations (used by generate_tool to scale iterations by
       the number of tool XMLs in the plan). When None, uses the config baseline.
+    - max_validation_retries_override: when provided, use this retry count instead of
+      config.api.max_validation_retries (used by generate_tool to scale retry rounds
+      by the number of tool XMLs in the plan). When None, uses the config baseline.
     - initial_messages: when provided, starts the agent from this conversation history
       instead of a fresh system+user prompt. Used by the integrated review fix rounds
       to continue from the original agent's conversation. When None, starts fresh.
@@ -367,7 +371,7 @@ def run_agent_with_validation(
     """
     temperature = config.api.temperature_generate
     max_iterations = max_iterations_override if max_iterations_override is not None else config.api.max_tool_iterations
-    max_validation_retries = config.api.max_validation_retries
+    max_validation_retries = max_validation_retries_override if max_validation_retries_override is not None else config.api.max_validation_retries
     max_context_chars = config.api.max_context_chars
 
     result = run_agent_loop(

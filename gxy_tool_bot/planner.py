@@ -415,7 +415,7 @@ def find_plan_comment(comments: list) -> str | None:
 def count_tool_xmls_in_plan(plan_markdown: str) -> int:
     """Count the number of tool XML files described in a plan.
 
-    Used to scale generator iterations when ``iterations_per_extra_tool_xml``
+    Used to scale validation retry rounds when ``validation_retries_per_extra_tool_xml``
     is configured. ``macros.xml`` is never counted (it is a shared macro file,
     not a tool wrapper).
 

@@ -42,12 +42,13 @@ api:
     - deepseek-ai/deepseek-r1
     - gpt-4o
   max_tool_iterations: 25
-  # Optional: scale generator iterations by the number of tool XMLs in the plan.
-  # The generator gets max_tool_iterations + iterations_per_extra_tool_xml * (N - 1)
-  # iterations, where N is the number of tool wrapper XMLs (macros.xml is not counted).
-  # 0 (default) disables scaling. e.g. with max_tool_iterations=3 and
-  # iterations_per_extra_tool_xml=1, a 4-XML tool family gets 3 + 1*(4-1) = 6 iterations.
-  iterations_per_extra_tool_xml: 0
+  # Optional: scale validation retry rounds by the number of tool XMLs in the plan.
+  # The generator gets max_validation_retries + validation_retries_per_extra_tool_xml * (N - 1)
+  # rounds, where N is the number of tool wrapper XMLs (macros.xml is not counted).
+  # Each round gets the full max_tool_iterations budget. 0 (default) disables scaling.
+  # e.g. with max_validation_retries=3 and validation_retries_per_extra_tool_xml=1,
+  # a 4-XML tool family gets 3 + 1*(4-1) = 6 rounds of 25 iterations each.
+  validation_retries_per_extra_tool_xml: 0
   temperature_plan: 0.4
   temperature_generate: 0.2
   max_context_chars: 100000

@@ -34,7 +34,7 @@ def test_load_valid_config(tmp_path: Path) -> None:
     assert config.api.base_url == "https://api.example.com/v1"
     assert config.api.model == "test-model"
     assert config.api.max_tool_iterations == 25
-    assert config.api.iterations_per_extra_tool_xml == 0
+    assert config.api.validation_retries_per_extra_tool_xml == 0
     assert config.api.temperature_plan == 0.4
     assert config.api.temperature_generate == 0.2
     assert config.api.max_context_chars == 100_000
@@ -86,18 +86,18 @@ def test_load_config_fallback_models_default_empty(tmp_path: Path) -> None:
     assert config.api.fallback_models == []
 
 
-def test_load_config_iterations_per_extra_tool_xml_default(tmp_path: Path) -> None:
+def test_load_config_validation_retries_per_extra_tool_xml_default(tmp_path: Path) -> None:
     path = _write_config(tmp_path, _valid_config())
     config = load_config(path)
-    assert config.api.iterations_per_extra_tool_xml == 0
+    assert config.api.validation_retries_per_extra_tool_xml == 0
 
 
-def test_load_config_iterations_per_extra_tool_xml_custom(tmp_path: Path) -> None:
+def test_load_config_validation_retries_per_extra_tool_xml_custom(tmp_path: Path) -> None:
     data = _valid_config()
-    data["api"]["iterations_per_extra_tool_xml"] = 2
+    data["api"]["validation_retries_per_extra_tool_xml"] = 2
     path = _write_config(tmp_path, data)
     config = load_config(path)
-    assert config.api.iterations_per_extra_tool_xml == 2
+    assert config.api.validation_retries_per_extra_tool_xml == 2
 
 
 def test_load_config_agent_notes_default_false(tmp_path: Path) -> None:

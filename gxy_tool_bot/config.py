@@ -14,10 +14,11 @@ class ApiConfig:
     base_url: str
     model: str
     max_tool_iterations: int = 25
-    # When > 0, the generator gets extra iterations per additional tool XML
-    # in the plan: baseline + iterations_per_extra_tool_xml * (num_tool_xmls - 1).
-    # macros.xml is not counted. 0 disables scaling (use baseline only).
-    iterations_per_extra_tool_xml: int = 0
+    # When > 0, the generator gets extra validation retry rounds per additional
+    # tool XML in the plan: baseline + validation_retries_per_extra_tool_xml * (num_tool_xmls - 1).
+    # Each round gets the full max_tool_iterations budget. macros.xml is not counted.
+    # 0 disables scaling (use baseline only).
+    validation_retries_per_extra_tool_xml: int = 0
     temperature_plan: float = 0.4
     temperature_generate: float = 0.2
     max_context_chars: int = 100_000
@@ -82,7 +83,7 @@ def load_config(path: Path) -> BotConfig:
         base_url=api_raw["base_url"],
         model=api_raw["model"],
         max_tool_iterations=api_raw.get("max_tool_iterations", 25),
-        iterations_per_extra_tool_xml=api_raw.get("iterations_per_extra_tool_xml", 0),
+        validation_retries_per_extra_tool_xml=api_raw.get("validation_retries_per_extra_tool_xml", 0),
         temperature_plan=api_raw.get("temperature_plan", 0.4),
         temperature_generate=api_raw.get("temperature_generate", 0.2),
         max_context_chars=api_raw.get("max_context_chars", 100_000),
