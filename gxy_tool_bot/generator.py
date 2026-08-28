@@ -20,6 +20,7 @@ from gxy_tool_bot.exemplars import fetch_exemplars
 from gxy_tool_bot.lookups.biotools import search_bio_tools
 from gxy_tool_bot.lookups.fetch import download_file, fetch_url
 from gxy_tool_bot.lookups.github import search_github
+from gxy_tool_bot.lookups.toolshed import fetch_toolshed_categories
 from gxy_tool_bot.lookups.web import search_web
 from gxy_tool_bot.planemo_utils import summarize_test_json
 
@@ -581,6 +582,22 @@ def _build_tool_definitions(file_writer: FileWriter, config: BotConfig | None = 
             },
             handler=lambda args: _format_bio_tools_results(search_bio_tools(args["query"])),
         ),
+        ToolDefinition(
+            name="fetch_toolshed_categories",
+            description=(
+                "Fetch the list of valid Tool Shed category names from the Tool Shed API. "
+                "Use this when writing or fixing .shed.yml to ensure the categories field "
+                "only contains valid category names. Invalid categories cause shed lint "
+                "warnings which fail CI. Call this before writing .shed.yml if you are "
+                "unsure which categories are valid."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+            handler=lambda args: _format_toolshed_categories(fetch_toolshed_categories()),
+        ),
     ]
 
     if config and config.agent_notes:
@@ -676,6 +693,12 @@ def _format_bio_tools_results(result) -> str:
         }
         for e in result.entries
     ])
+
+
+def _format_toolshed_categories(categories: list[str]) -> str:
+    if not categories:
+        return "Failed to fetch Tool Shed categories. Try again later or use commonly valid categories like: Sequence Analysis, Variant Analysis, Statistics, Phylogenetics, Proteomics, Transcriptomics, Metagenomics, Assembly, RNA, Genomic Interval Operations, Convert Formats, Text Manipulation, Visualization."
+    return "Valid Tool Shed categories:\n" + "\n".join(f"- {c}" for c in categories)
 
 
 def _build_exemplar_text(exemplars: list) -> str:

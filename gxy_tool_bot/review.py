@@ -38,6 +38,7 @@ from gxy_tool_bot.generator import (
 from gxy_tool_bot.github_client import GitHubClient
 from gxy_tool_bot.lookups.biotools import search_bio_tools
 from gxy_tool_bot.lookups.github import search_github
+from gxy_tool_bot.lookups.toolshed import fetch_toolshed_categories
 from gxy_tool_bot.lookups.web import search_web
 from gxy_tool_bot.utils import read_tool_files
 from gxy_tool_bot.validation import ValidationResult, run_agent_with_validation
@@ -338,6 +339,19 @@ def _build_review_tool_definitions(file_writer: FileWriter) -> list[ToolDefiniti
             },
             handler=lambda args: _format_bio_tools_results(search_bio_tools(args["query"])),
         ),
+        ToolDefinition(
+            name="fetch_toolshed_categories",
+            description=(
+                "Fetch the list of valid Tool Shed category names from the Tool Shed API. "
+                "Use this to verify that .shed.yml categories are valid."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+            handler=lambda args: _format_toolshed_categories(fetch_toolshed_categories()),
+        ),
     ]
 
     if shutil.which("planemo"):
@@ -412,6 +426,12 @@ def _format_bio_tools_results(result) -> str:
         }
         for e in result.entries
     ])
+
+
+def _format_toolshed_categories(categories: list[str]) -> str:
+    if not categories:
+        return "Failed to fetch Tool Shed categories."
+    return "Valid Tool Shed categories:\n" + "\n".join(f"- {c}" for c in categories)
 
 
 # ---------------------------------------------------------------------------

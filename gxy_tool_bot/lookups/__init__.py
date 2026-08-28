@@ -6,7 +6,7 @@ from gxy_tool_bot.lookups.doi import PublicationInfo, fetch_doi_metadata
 from gxy_tool_bot.lookups.fetch import download_file, fetch_url
 from gxy_tool_bot.lookups.github import GitHubRepoInfo, search_github
 from gxy_tool_bot.lookups.pubmed import search_pubmed
-from gxy_tool_bot.lookups.toolshed import ToolShedRepo, ToolShedResult, search_tool_shed
+from gxy_tool_bot.lookups.toolshed import ToolShedRepo, ToolShedResult, fetch_toolshed_categories, search_tool_shed
 from gxy_tool_bot.lookups.web import SearchResult, search_web
 
 __all__ = [
@@ -20,6 +20,7 @@ __all__ = [
     "ToolShedResult",
     "download_file",
     "fetch_doi_metadata",
+    "fetch_toolshed_categories",
     "fetch_url",
     "search_bio_tools",
     "search_bioconda",

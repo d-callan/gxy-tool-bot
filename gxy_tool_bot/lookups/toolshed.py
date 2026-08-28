@@ -72,3 +72,25 @@ def search_tool_shed(query: str) -> ToolShedResult | None:
     except Exception as e:
         logger.warning("search_tool_shed failed for '%s': %s", query, e)
         return None
+
+
+def fetch_toolshed_categories() -> list[str]:
+    """Fetch the list of valid Tool Shed category names.
+
+    These are the categories that can be used in .shed.yml ``categories`` fields.
+    Using an invalid category causes a shed lint warning, which fails CI in
+    repos with ``fail-level: warn``. The list can change over time as Tool Shed
+    admins add new categories, so we fetch it live rather than hardcoding.
+    """
+    def _do_fetch() -> list[str]:
+        with httpx.Client(timeout=_TIMEOUT) as client:
+            resp = client.get(f"{TOOL_SHED_URL}/api/categories")
+            resp.raise_for_status()
+            data = resp.json()
+        return [c["name"] for c in data if not c.get("deleted", False)]
+
+    try:
+        return retry(_do_fetch)
+    except Exception as e:
+        logger.warning("fetch_toolshed_categories failed: %s", e)
+        return []

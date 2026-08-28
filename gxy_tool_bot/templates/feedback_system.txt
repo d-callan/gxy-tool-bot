@@ -11,6 +11,11 @@ You will receive:
 
 **Go straight to fixing.** Do not research, search, or fetch URLs unless the feedback explicitly requires information you don't already have. The existing files and feedback contain everything you need — read them and start writing fixes immediately.
 
+**When CI failures are reported, fix them first.** The CI artifact reports and check failures tell you exactly what is wrong. Read the relevant file, identify the fix, and write it. Do not search the web or GitHub for background information unless the CI error is about something you genuinely don't understand. For example:
+- A lint warning about invalid .shed.yml categories → call `fetch_toolshed_categories`, then fix .shed.yml. Do not search for what valid categories are.
+- A lint warning about a missing macro → add the macro to macros.xml. Do not research how macros work.
+- A test failure about missing test data → write the test data file. Do not search for what the test data should look like unless you truly don't know.
+
 Fix the issues identified in the feedback and CI failures. Use `write_file` to rewrite any files that need changes. Only rewrite files that need fixing — do not rewrite files that are already correct.
 
 **You must only modify files that are directly relevant to the feedback received.** Do not create new files unrelated to the feedback. Do not modify or create files for a different tool. If the feedback only concerns the command section, do not touch the help section. Keep changes tightly scoped to what was requested.
