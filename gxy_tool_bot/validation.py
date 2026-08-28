@@ -347,6 +347,7 @@ def run_agent_with_validation(
     config: BotConfig,
     no_files_nudge: str | None = None,
     write_tools: set[str] | None = None,
+    max_iterations_override: int | None = None,
 ) -> tuple[AgentResult, list[GeneratedFile], ValidationResult]:
     """
     Run the agent loop with validation retries. Shared by generate_tool and address_feedback.
@@ -355,10 +356,13 @@ def run_agent_with_validation(
     - On validation failure, feeds errors back to the agent and retries up to max_validation_retries.
     - If no write tool calls were made and no_files_nudge is provided, uses it to nudge the agent.
     - write_tools: set of tool names that count as "writing" (default: {"write_file"}).
+    - max_iterations_override: when provided, use this iteration count instead of
+      config.api.max_tool_iterations (used by generate_tool to scale iterations by
+      the number of tool XMLs in the plan). When None, uses the config baseline.
     - Returns (final AgentResult, files, ValidationResult).
     """
     temperature = config.api.temperature_generate
-    max_iterations = config.api.max_tool_iterations
+    max_iterations = max_iterations_override if max_iterations_override is not None else config.api.max_tool_iterations
     max_validation_retries = config.api.max_validation_retries
     max_context_chars = config.api.max_context_chars
 

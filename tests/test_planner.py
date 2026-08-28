@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from gxy_tool_bot.planner import PLAN_MARKER, ToolRequest, find_plan_comment, parse_issue_body
+from gxy_tool_bot.planner import PLAN_MARKER, ToolRequest, count_tool_xmls_in_plan, find_plan_comment, parse_issue_body
 
 
 def test_parse_issue_body_structured() -> None:
@@ -55,3 +55,64 @@ def test_find_plan_comment_not_found() -> None:
 
     plan = find_plan_comment(comments)
     assert plan is None
+
+
+def test_count_tool_xmls_structured_line() -> None:
+    """The structured 'Number of tool XML files: N' line is used when present."""
+    plan = (
+        "# Tool Plan: hyphy\n\n"
+        "### Tool Structure\n"
+        "Tool family with meme.xml, busted.xml, fel.xml sharing macros.xml.\n\n"
+        "**Number of tool XML files:** 3\n"
+    )
+    assert count_tool_xmls_in_plan(plan) == 3
+
+
+def test_count_tool_xmls_structured_line_bold() -> None:
+    """Structured line tolerates surrounding markdown bold and case variants."""
+    plan = "## Tool Structure\n\n**Number of tool XML files:** 4\n"
+    assert count_tool_xmls_in_plan(plan) == 4
+
+
+def test_count_tool_xmls_structured_line_clamps_to_one() -> None:
+    """A structured count of 0 clamps to the minimum of 1."""
+    plan = "**Number of tool XML files:** 0\n"
+    assert count_tool_xmls_in_plan(plan) == 1
+
+
+def test_count_tool_xmls_fallback_distinct_files() -> None:
+    """Without the structured line, distinct .xml filenames are counted (macros excluded)."""
+    plan = (
+        "# Tool Plan: samtools\n\n"
+        "### Tool Structure\n"
+        "- samtools_view.xml\n"
+        "- samtools_sort.xml\n"
+        "- samtools_index.xml\n"
+        "- macros.xml (shared)\n"
+    )
+    assert count_tool_xmls_in_plan(plan) == 3
+
+
+def test_count_tool_xmls_fallback_dedupes_repeats() -> None:
+    """Repeated mentions of the same .xml filename count once."""
+    plan = (
+        "We will write foo.xml. The foo.xml tool uses macros.xml.\n"
+        "Tests for foo.xml go in test-data.\n"
+    )
+    assert count_tool_xmls_in_plan(plan) == 1
+
+
+def test_count_tool_xmls_no_xml_mentions() -> None:
+    """A plan with no .xml mentions returns the minimum of 1."""
+    plan = "# Tool Plan: mystery\n\n## Summary\nA vague plan with no file names.\n"
+    assert count_tool_xmls_in_plan(plan) == 1
+
+
+def test_count_tool_xmls_structured_overrides_fallback() -> None:
+    """The structured line wins even if the prose mentions a different number of XMLs."""
+    plan = (
+        "### Tool Structure\n"
+        "foo.xml and bar.xml\n\n"
+        "**Number of tool XML files:** 5\n"
+    )
+    assert count_tool_xmls_in_plan(plan) == 5

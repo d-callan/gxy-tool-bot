@@ -410,3 +410,33 @@ def find_plan_comment(comments: list) -> str | None:
         if PLAN_MARKER in comment.body:
             return comment.body.replace(PLAN_MARKER, "").strip()
     return None
+
+
+def count_tool_xmls_in_plan(plan_markdown: str) -> int:
+    """Count the number of tool XML files described in a plan.
+
+    Used to scale generator iterations when ``iterations_per_extra_tool_xml``
+    is configured. ``macros.xml`` is never counted (it is a shared macro file,
+    not a tool wrapper).
+
+    Resolution order:
+    1. A structured ``Number of tool XML files: N`` line emitted by the
+       planner (reliable for new plans).
+    2. Fallback: scan the plan for distinct ``*.xml`` filenames, excluding
+       ``macros.xml``. Best-effort for legacy plans that lack the structured
+       line.
+
+    Returns at least 1 — a plan always describes at least one tool XML.
+    """
+    # 1. Structured line — case-insensitive, tolerates **bold** and extra text.
+    m = re.search(r"(?i)number of tool xml files\D+(\d+)", plan_markdown)
+    if m:
+        return max(1, int(m.group(1)))
+
+    # 2. Fallback: distinct .xml filenames, excluding macros.xml.
+    names = {
+        match.lower()
+        for match in re.findall(r"[\w.-]+\.xml", plan_markdown)
+    }
+    names.discard("macros.xml")
+    return max(1, len(names))

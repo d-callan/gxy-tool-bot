@@ -686,6 +686,19 @@ def generate_tool(
     )
 
     from gxy_tool_bot.validation import run_agent_with_validation, ValidationResult
+    from gxy_tool_bot.planner import count_tool_xmls_in_plan
+
+    # Scale generator iterations by the number of tool XMLs in the plan.
+    # iterations_per_extra_tool_xml=0 (default) disables scaling.
+    max_iterations_override: int | None = None
+    increment = config.api.iterations_per_extra_tool_xml
+    if increment > 0:
+        num_xmls = count_tool_xmls_in_plan(plan_markdown)
+        max_iterations_override = config.api.max_tool_iterations + increment * max(0, num_xmls - 1)
+        logger.info(
+            "Scaled generator iterations: %d baseline + %d * (%d tool XMLs - 1) = %d",
+            config.api.max_tool_iterations, increment, num_xmls, max_iterations_override,
+        )
 
     with ApiClient(config.api.base_url, api_key, config.api.model, read_timeout=config.api.read_timeout, fallback_models=config.api.fallback_models) as client:
         result, files, validation = run_agent_with_validation(
@@ -696,6 +709,7 @@ def generate_tool(
             file_writer=file_writer,
             config=config,
             no_files_nudge=no_files_nudge,
+            max_iterations_override=max_iterations_override,
         )
 
     generated = GeneratedTool(

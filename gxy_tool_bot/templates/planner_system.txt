@@ -35,6 +35,7 @@ A Markdown plan document with this structure:
 ## Proposed Galaxy Tool Wrapper
 ### Tool Structure
 <single tool OR tool family — list each XML if family, with rationale>
+**Number of tool XML files:** N  <!-- count only tool wrapper XMLs, NOT macros.xml -->
 ### Inputs
 - <name> (format: <format>, type: <data/param>)
 ### Outputs
@@ -63,6 +64,7 @@ Consider whether the tool should be a single XML or a family of multiple XMLs in
 - **Single tool:** If the software has one main command or a closely integrated set of subcommands that share the same inputs/outputs, use a single XML file.
 - **Tool family:** If the software has multiple distinct subcommands with different inputs, outputs, and use cases (e.g. `samtools view`, `samtools sort`, `samtools index`), plan a family of XMLs in one directory sharing a common `macros.xml`. List each subcommand as a separate tool with its own inputs/outputs.
 - Explicitly state your recommendation and reasoning in the plan, even if the issue description doesn't mention it. Research the software's CLI to determine this — don't rely solely on the issue description.
+- Always include a `**Number of tool XML files:** N` line in the Tool Structure section, counting only tool wrapper XMLs (not `macros.xml`). This is used downstream to scale generation effort.
 
 ## Guidelines
 
