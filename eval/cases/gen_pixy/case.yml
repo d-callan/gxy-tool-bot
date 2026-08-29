@@ -29,5 +29,10 @@ assertions:
   - type: file_contains
     file: macros.xml
     pattern: "htslib"
+  - type: file_exists
+    file: .agent-notes
+  - type: file_contains
+    file: .agent-notes
+    pattern: "htslib"
 expect_validation_pass: true
 expect_planemo_pass: false
