@@ -37,6 +37,9 @@ import logging
 import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+import httpx
 
 from gxy_tool_bot.agent_loop import AgentResult, ToolDefinition, run_agent_loop
 from gxy_tool_bot.api_client import ApiClient
@@ -44,6 +47,8 @@ from gxy_tool_bot.config import BotConfig
 from gxy_tool_bot.generator import GeneratedFile, FileWriter
 
 logger = logging.getLogger(__name__)
+
+_URL_CHECK_TIMEOUT = httpx.Timeout(connect=5.0, read=10.0, write=5.0, pool=5.0)
 
 
 @dataclass
@@ -239,6 +244,18 @@ def validate_generated_files(files: list[GeneratedFile]) -> ValidationResult:
                     "remove optional and just use the default value."
                 )
 
+    # Check for optional="false" — it's the default, so specifying it is redundant
+    for path, root in xml_contents.items():
+        if "macros.xml" in path:
+            continue
+        for param in root.iter("param"):
+            if param.get("optional") == "false":
+                param_name = param.get("name") or param.get("argument") or "unnamed"
+                errors.append(
+                    f"<param> '{param_name}' in {path} has optional=\"false\" — "
+                    "this is the default. Remove the optional attribute."
+                )
+
     # Check for display="checkboxes" on multi-select params
     for path, root in xml_contents.items():
         if "macros.xml" in path:
@@ -335,7 +352,79 @@ def validate_generated_files(files: list[GeneratedFile]) -> ValidationResult:
                     "output files."
                 )
 
+    # Check that DOIs and URLs resolve.
+    # Only flag clear 404s — transient network errors are not validation failures.
+    urls_to_check: list[tuple[str, str]] = []  # (url, description)
+    for path, root in xml_contents.items():
+        if "macros.xml" in path:
+            continue
+        for citation in root.iter("citation"):
+            if citation.get("type") == "doi":
+                doi = (citation.text or "").strip()
+                if doi:
+                    urls_to_check.append((
+                        f"https://doi.org/{doi}",
+                        f"DOI '{doi}' in {path}",
+                    ))
+
+    # Check .shed.yml URLs
+    import yaml
+    for f in files:
+        if f.path == ".shed.yml":
+            try:
+                shed = yaml.safe_load(f.content.decode("utf-8"))
+                if shed:
+                    for key in ("remote_repository_url", "homepage_url"):
+                        url = shed.get(key)
+                        if url and isinstance(url, str):
+                            urls_to_check.append((url, f"{key} in .shed.yml"))
+            except Exception:
+                pass
+
+    if urls_to_check:
+        bad_urls = _check_urls_resolve(urls_to_check)
+        for desc, url in bad_urls:
+            errors.append(
+                f"{desc} does not resolve (URL '{url}' returned 404). "
+                "Fix or remove the broken reference."
+            )
+
     return ValidationResult(valid=len(errors) == 0, errors=errors)
+
+
+def _check_urls_resolve(urls: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    """Check that URLs resolve (return non-404). Returns list of (description, url) that failed.
+
+    Only returns URLs that got a clear 404. Network errors, timeouts, and
+    redirects are NOT treated as failures (could be transient or rate-limited).
+    """
+    def _check_one(url: str) -> bool | None:
+        """Returns True if OK, False if 404, None if inconclusive."""
+        try:
+            with httpx.Client(timeout=_URL_CHECK_TIMEOUT, follow_redirects=True) as client:
+                resp = client.head(url)
+                if resp.status_code == 404:
+                    return False
+                return True
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                return False
+            return None  # Other HTTP errors are inconclusive
+        except Exception:
+            return None  # Network errors are inconclusive
+
+    bad: list[tuple[str, str]] = []
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        futures = {
+            executor.submit(_check_one, url): (desc, url)
+            for desc, url in urls
+        }
+        for future in as_completed(futures):
+            desc, url = futures[future]
+            result = future.result()
+            if result is False:
+                bad.append((desc, url))
+    return bad
 
 
 def run_agent_with_validation(
@@ -390,6 +479,32 @@ def run_agent_with_validation(
         for p, c in sorted(file_writer.files.items())
     ]
     validation = validate_generated_files(files)
+
+    # Check for stray files on disk that aren't tracked in file_writer.files.
+    # In generate mode the output dir starts empty, so any untracked file is
+    # likely a stray from run_in_conda or another tool. In feedback/review
+    # mode the tool dir may have pre-existing untracked files (binary test
+    # data, etc.), so we skip this check to avoid false positives.
+    if file_writer.mode == "generate":
+        tracked = {p.replace("\\", "/") for p in file_writer.files}
+        output_dir = file_writer.output_dir.resolve()
+        for f in output_dir.rglob("*"):
+            if not f.is_file():
+                continue
+            rel = f.resolve().relative_to(output_dir).as_posix()
+            if rel == ".tool-name":
+                continue
+            if rel not in tracked:
+                validation = ValidationResult(
+                    valid=False,
+                    errors=validation.errors + [
+                        f"Stray file '{rel}' exists in the output directory but was not "
+                        "created with write_file/compress_file/download_file. Remove it "
+                        "with delete_file, or if it was created by run_in_conda, it should "
+                        "have been cleaned up automatically — this is likely a bug."
+                    ],
+                )
+
     validation_retries = 0
 
     for retry in range(max_validation_retries):

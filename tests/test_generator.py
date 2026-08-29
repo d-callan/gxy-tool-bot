@@ -412,6 +412,24 @@ def test_validation_optional_with_value() -> None:
     assert any("optional" in e for e in result.errors)
 
 
+def test_validation_optional_false_redundant() -> None:
+    """optional=false is the default and should be flagged as redundant."""
+    xml = b"""<?xml version="1.0"?>
+<tool id="test" name="Test" version="@TOOL_VERSION@+galaxy0">
+    <command detect_errors="aggressive">test</command>
+    <inputs>
+        <param name="score" type="float" optional="false" label="Score"/>
+    </inputs>
+    <outputs><data name="output" format="fasta"/></outputs>
+    <tests><test expect_num_outputs="1"><param name="input" value="s.fa"/></test></tests>
+    <help format="markdown">Help</help>
+</tool>"""
+    files = [GeneratedFile(path="test.xml", content=xml)]
+    result = validate_generated_files(files)
+    assert result.valid is False
+    assert any("optional=\"false\"" in e for e in result.errors)
+
+
 def test_validation_display_checkboxes() -> None:
     """display=checkboxes on multi-select should fail."""
     xml = b"""<?xml version="1.0"?>
@@ -1096,6 +1114,115 @@ def test_validation_mv_in_command_ok() -> None:
     assert not any("cp" in e for e in result.errors)
 
 
+def test_validation_doi_404_fails() -> None:
+    """A DOI that returns 404 should fail validation."""
+    from unittest.mock import patch, MagicMock
+    xml = b"""<?xml version="1.0"?>
+<tool id="test" name="Test" version="@TOOL_VERSION@+galaxy0">
+    <command detect_errors="aggressive">test</command>
+    <inputs><param name="input" type="data" format="fasta"/></inputs>
+    <outputs><data name="output" format="fasta"/></outputs>
+    <tests><test expect_num_outputs="1"><param name="input" value="s.fa"/></test></tests>
+    <help format="markdown">Help</help>
+    <citations><citation type="doi">10.9999/nonexistent</citation></citations>
+</tool>"""
+    files = [GeneratedFile(path="test.xml", content=xml)]
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 404
+    mock_client = MagicMock()
+    mock_client.__enter__ = MagicMock(return_value=mock_client)
+    mock_client.__exit__ = MagicMock(return_value=None)
+    mock_client.head = MagicMock(return_value=mock_resp)
+
+    with patch("gxy_tool_bot.validation.httpx.Client", return_value=mock_client):
+        result = validate_generated_files(files)
+
+    assert result.valid is False
+    assert any("does not resolve" in e for e in result.errors)
+
+
+def test_validation_doi_resolves_ok() -> None:
+    """A DOI that resolves (200) should not cause validation errors."""
+    from unittest.mock import patch, MagicMock
+    xml = b"""<?xml version="1.0"?>
+<tool id="test" name="Test" version="@TOOL_VERSION@+galaxy0">
+    <command detect_errors="aggressive">test</command>
+    <inputs><param name="input" type="data" format="fasta"/></inputs>
+    <outputs><data name="output" format="fasta"/></outputs>
+    <tests><test expect_num_outputs="1"><param name="input" value="s.fa"/></test></tests>
+    <help format="markdown">Help</help>
+    <citations><citation type="doi">10.1093/bioinformatics/btp348</citation></citations>
+</tool>"""
+    files = [GeneratedFile(path="test.xml", content=xml)]
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_client = MagicMock()
+    mock_client.__enter__ = MagicMock(return_value=mock_client)
+    mock_client.__exit__ = MagicMock(return_value=None)
+    mock_client.head = MagicMock(return_value=mock_resp)
+
+    with patch("gxy_tool_bot.validation.httpx.Client", return_value=mock_client):
+        result = validate_generated_files(files)
+
+    assert not any("does not resolve" in e for e in result.errors)
+
+
+def test_validation_doi_network_error_not_failure() -> None:
+    """Network errors during DOI checking should NOT cause validation failures."""
+    from unittest.mock import patch, MagicMock
+    import httpx
+    xml = b"""<?xml version="1.0"?>
+<tool id="test" name="Test" version="@TOOL_VERSION@+galaxy0">
+    <command detect_errors="aggressive">test</command>
+    <inputs><param name="input" type="data" format="fasta"/></inputs>
+    <outputs><data name="output" format="fasta"/></outputs>
+    <tests><test expect_num_outputs="1"><param name="input" value="s.fa"/></test></tests>
+    <help format="markdown">Help</help>
+    <citations><citation type="doi">10.1093/bioinformatics/btp348</citation></citations>
+</tool>"""
+    files = [GeneratedFile(path="test.xml", content=xml)]
+
+    mock_client = MagicMock()
+    mock_client.__enter__ = MagicMock(return_value=mock_client)
+    mock_client.__exit__ = MagicMock(return_value=None)
+    mock_client.head = MagicMock(side_effect=httpx.ConnectError("timeout"))
+
+    with patch("gxy_tool_bot.validation.httpx.Client", return_value=mock_client):
+        result = validate_generated_files(files)
+
+    assert not any("does not resolve" in e for e in result.errors)
+
+
+def test_validation_shed_yml_url_404_fails() -> None:
+    """A .shed.yml URL that returns 404 should fail validation."""
+    from unittest.mock import patch, MagicMock
+    xml = b"""<?xml version="1.0"?>
+<tool id="test" name="Test" version="@TOOL_VERSION@+galaxy0">
+    <command detect_errors="aggressive">test</command>
+    <inputs><param name="input" type="data" format="fasta"/></inputs>
+    <outputs><data name="output" format="fasta"/></outputs>
+    <tests><test expect_num_outputs="1"><param name="input" value="s.fa"/></test></tests>
+    <help format="markdown">Help</help>
+</tool>"""
+    shed = b"name: test\nowner: iuc\nremote_repository_url: https://github.com/foo/bar/tree/wrong/tools/test\n"
+    files = [GeneratedFile(path="test.xml", content=xml), GeneratedFile(path=".shed.yml", content=shed)]
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 404
+    mock_client = MagicMock()
+    mock_client.__enter__ = MagicMock(return_value=mock_client)
+    mock_client.__exit__ = MagicMock(return_value=None)
+    mock_client.head = MagicMock(return_value=mock_resp)
+
+    with patch("gxy_tool_bot.validation.httpx.Client", return_value=mock_client):
+        result = validate_generated_files(files)
+
+    assert result.valid is False
+    assert any("remote_repository_url" in e and "does not resolve" in e for e in result.errors)
+
+
 def test_read_file_returns_content(tmp_path: Path) -> None:
     """read_file should return the contents of an existing file."""
     fw = FileWriter(tmp_path)
@@ -1561,6 +1688,45 @@ def test_run_in_conda_tool_added_when_installed(tmp_path: Path) -> None:
     assert "run_in_conda" in tool_names
     conda_tool = next(t for t in tools if t.name == "run_in_conda")
     assert conda_tool.timeout == 360
+
+
+def test_run_in_conda_does_not_auto_clean_stray_files(tmp_path: Path) -> None:
+    """run_in_conda should leave files created by the command — the bot cleans up with delete_file."""
+    from unittest.mock import patch, MagicMock
+    fw = FileWriter(tmp_path)
+    fw.write_file({"path": "test-data/sample.txt", "content": "hello"})
+
+    # Pre-create env to skip creation
+    import hashlib
+    import tempfile
+    from pathlib import Path as P
+    env_key = hashlib.sha256("touch".encode()).hexdigest()[:16]
+    env_path = P(tempfile.gettempdir()) / f"gxy_conda_{env_key}"
+    (env_path / "bin").mkdir(parents=True, exist_ok=True)
+
+    mock_result = MagicMock()
+    mock_result.stdout = "ok"
+    mock_result.stderr = ""
+    mock_result.returncode = 0
+
+    def _mock_run(cmd, **kwargs):
+        if "create" not in cmd:
+            (tmp_path / "stray.log").write_text("oops")
+        return mock_result
+
+    with patch("gxy_tool_bot.generator.shutil.which", return_value="/usr/bin/micromamba"):
+        with patch("subprocess.run", side_effect=_mock_run):
+            result = fw.run_in_conda({"packages": ["touch"], "command": "touch stray.log"})
+
+    assert "ok" in result
+    # Stray file should still be there — bot must clean it up with delete_file
+    assert (tmp_path / "stray.log").exists(), "Stray file should remain for bot to inspect/clean up"
+    # Original file should also still be there
+    assert (tmp_path / "test-data/sample.txt").exists()
+
+    # Cleanup
+    import shutil as _shutil
+    _shutil.rmtree(env_path, ignore_errors=True)
 
 
 def test_add_agent_notes_generation_creates_file(tmp_path: Path) -> None:

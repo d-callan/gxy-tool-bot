@@ -155,6 +155,29 @@ def test_load_config_repo_from_config_overrides_env(tmp_path: Path, monkeypatch:
     assert config.repo == "owner/repo"
 
 
+def test_load_config_default_branch_from_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    data = _valid_config()
+    data["default_branch"] = "main"
+    path = _write_config(tmp_path, data)
+    monkeypatch.delenv("GITHUB_REF_DEFAULT_BRANCH", raising=False)
+    config = load_config(path)
+    assert config.default_branch == "main"
+
+
+def test_load_config_default_branch_from_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    path = _write_config(tmp_path, _valid_config())
+    monkeypatch.setenv("GITHUB_REF_DEFAULT_BRANCH", "develop")
+    config = load_config(path)
+    assert config.default_branch == "develop"
+
+
+def test_load_config_default_branch_defaults_master(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    path = _write_config(tmp_path, _valid_config())
+    monkeypatch.delenv("GITHUB_REF_DEFAULT_BRANCH", raising=False)
+    config = load_config(path)
+    assert config.default_branch == "master"
+
+
 def test_load_config_custom_labels(tmp_path: Path) -> None:
     data = _valid_config()
     data["labels"] = {

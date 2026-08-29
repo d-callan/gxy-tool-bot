@@ -415,7 +415,11 @@ class FileWriter:
             except Exception as e:
                 return f"Error creating conda env: {e}"
 
-        # Run the command with the env's bin/ prepended to PATH
+        # Run the command with the env's bin/ prepended to PATH.
+        # The command runs in the output directory so test data is accessible.
+        # Any files the command creates (e.g. output samples, logs) will remain
+        # on disk — the bot must clean them up with delete_file after inspecting
+        # them. The validation loop checks for stray files as a safety net.
         env = os.environ.copy()
         env["PATH"] = str(env_path / "bin") + os.pathsep + env.get("PATH", "")
 
@@ -747,7 +751,10 @@ def _build_tool_definitions(file_writer: FileWriter, config: BotConfig | None = 
                 "when documentation is unclear or planemo test output is hard to interpret. "
                 "Only bioconda packages are supported — tools not in bioconda cannot be test-run. "
                 "Use search_bioconda first to verify a package exists. "
-                "Use sparingly: the plan and exemplars should have most of what you need."
+                "Use sparingly: the plan and exemplars should have most of what you need. "
+                "**Important:** If the command creates any files in the output directory "
+                "(e.g. output samples, logs), you MUST clean them up with delete_file after "
+                "inspecting them. Files left in the output directory will be committed to the PR."
             ),
             parameters={
                 "type": "object",
@@ -871,7 +878,11 @@ def generate_tool(
 
     # Build prompts
     tool_owner = config.tool_owner or _derive_tool_owner(config.repo or "")
-    system_prompt = _load_template("generator_system.txt").render(tool_owner=tool_owner)
+    system_prompt = _load_template("generator_system.txt").render(
+        tool_owner=tool_owner,
+        repo=config.repo or "",
+        default_branch=config.default_branch,
+    )
     user_prompt = _load_template("generator_user.txt").render(
         plan=plan_markdown,
         exemplars=_build_exemplar_text(exemplars),

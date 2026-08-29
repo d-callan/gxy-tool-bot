@@ -50,6 +50,10 @@ class BotConfig:
     api: ApiConfig
     exemplars: list[ExemplarConfig]
     repo: str | None = None
+    # Default branch of the repo (e.g. "master" for IUC, "main" for others).
+    # Used to construct remote_repository_url in .shed.yml. Falls back to
+    # GITHUB_REF_DEFAULT_BRANCH env var (set by GitHub Actions), then "master".
+    default_branch: str = "master"
     labels: LabelConfig = field(default_factory=LabelConfig)
     allowed_maintainers: list[str] | None = None
     tool_owner: str | None = None
@@ -108,6 +112,8 @@ def load_config(path: Path) -> BotConfig:
             "Set it in .gxy-tool-bot.yml or run via GitHub Actions (GITHUB_REPOSITORY env var)."
         )
 
+    default_branch = raw.get("default_branch") or os.environ.get("GITHUB_REF_DEFAULT_BRANCH", "master")
+
     labels_raw = raw.get("labels", {})
     labels = LabelConfig(
         request=labels_raw.get("request", "tool-request"),
@@ -128,6 +134,7 @@ def load_config(path: Path) -> BotConfig:
         api=api,
         exemplars=exemplars,
         repo=repo,
+        default_branch=default_branch,
         labels=labels,
         allowed_maintainers=allowed_maintainers,
         tool_owner=tool_owner,
