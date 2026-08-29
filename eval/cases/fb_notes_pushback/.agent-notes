@@ -1,0 +1,5 @@
+# Agent Notes
+
+## Generation notes
+
+htslib is listed as a requirement even though the wrapper command only calls pixy directly. This is intentional: pixy 2.0+ uses htslib's bgzip/tabix for random access to VCFs via scikit-allel. It is a hard runtime dependency per the pixy changelog — VCFs must be bgzipped and tabix-indexed before use. Without htslib in the conda env, pixy will fail at runtime when trying to read indexed VCFs. The requirement is not an oversight.

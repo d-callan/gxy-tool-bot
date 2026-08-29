@@ -1,0 +1,26 @@
+name: fb_notes_pushback
+type: feedback
+difficulty: medium
+description: "Reviewer asks to remove htslib requirement since pixy command doesn't call it directly; agent notes explain htslib is a hard runtime dependency for bgzip/tabix"
+existing_files:
+  - pixy.xml
+  - macros.xml
+  - .agent-notes
+feedback:
+  review_comments:
+    - author: alice
+      file_path: macros.xml
+      line: 7
+      body: "The htslib requirement looks like a mistake — the command only calls pixy, not htslib or tabix directly. Should this be removed?"
+  pr_comments: []
+  failed_checks: []
+  ci_artifacts: {}
+assertions:
+  - type: file_contains
+    file: macros.xml
+    pattern: "htslib"
+  - type: xml_element_exists
+    file: pixy.xml
+    xpath: ".//command[@detect_errors='aggressive']"
+expect_validation_pass: true
+expect_planemo_pass: true

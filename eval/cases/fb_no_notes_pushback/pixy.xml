@@ -1,0 +1,49 @@
+<?xml version="1.0"?>
+<tool id="pixy" name="pixy" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@">
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="requirements"/>
+    <expand macro="version_command"/>
+    <command detect_errors="aggressive"><![CDATA[
+pixy --stats $stats_type --vcf $input_vcf --populations $populations_file --output_folder outputs --output_prefix output
+#if $stats_type == "pi"
+    --n_cores \$GALAXY_SLOTS
+#end if
+    ]]></command>
+    <inputs>
+        <param name="input_vcf" type="data" format="vcf" label="Input VCF file (bgzipped and tabix-indexed)"/>
+        <param name="populations_file" type="data" format="tabular" label="Populations file"/>
+        <param name="stats_type" type="select" label="Statistic to calculate">
+            <option value="pi">Nucleotide diversity (pi)</option>
+            <option value="dxy">Between-population divergence (dxy)</option>
+            <option value="fst">Fixation index (Fst)</option>
+        </param>
+    </inputs>
+    <outputs>
+        <data name="output" format="tabular" from_work_dir="outputs/output_${stats_type}.txt"/>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="1">
+            <param name="input_vcf" value="sample.vcf.gz"/>
+            <param name="populations_file" value="populations.txt"/>
+            <param name="stats_type" value="pi"/>
+            <output name="output" file="expected_pi.txt" ftype="tabular"/>
+        </test>
+    </tests>
+    <help format="markdown"><![CDATA[
+# pixy
+
+pixy calculates unbiased estimators of population genetic summary statistics.
+
+-----
+
+## Usage
+
+Select a statistic type and provide a bgzipped, tabix-indexed VCF file
+and a populations file.
+]]></help>
+    <citations>
+        <citation type="doi">10.1038/s41588-020-0678-9</citation>
+    </citations>
+</tool>

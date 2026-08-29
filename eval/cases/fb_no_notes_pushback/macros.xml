@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<macros>
+    <token name="@TOOL_VERSION@">2.0.0</token>
+    <token name="@VERSION_SUFFIX@">0</token>
+    <xml name="requirements">
+        <requirements>
+            <requirement type="package" version="@TOOL_VERSION@">pixy</requirement>
+            <requirement type="package" version="1.21">htslib</requirement>
+        </requirements>
+    </xml>
+    <xml name="version_command">pixy --version</xml>
+</macros>

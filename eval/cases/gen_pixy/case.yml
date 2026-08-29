@@ -1,0 +1,33 @@
+name: gen_pixy
+type: generate
+difficulty: medium
+description: "Generate pixy wrapper — tests if bot discovers htslib runtime dependency and documents it in agent notes"
+plan: plan.md
+expected_files:
+  - pixy.xml
+  - macros.xml
+  - .shed.yml
+assertions:
+  - type: file_exists
+    file: pixy.xml
+  - type: file_exists
+    file: macros.xml
+  - type: file_exists
+    file: .shed.yml
+  - type: xml_element_exists
+    file: pixy.xml
+    xpath: ".//command[@detect_errors='aggressive']"
+  - type: xml_element_exists
+    file: pixy.xml
+    xpath: ".//test[@expect_num_outputs]"
+  - type: xml_element_exists
+    file: pixy.xml
+    xpath: ".//help[@format='markdown']"
+  - type: file_contains
+    file: macros.xml
+    pattern: "@TOOL_VERSION@"
+  - type: file_contains
+    file: macros.xml
+    pattern: "htslib"
+expect_validation_pass: true
+expect_planemo_pass: false
