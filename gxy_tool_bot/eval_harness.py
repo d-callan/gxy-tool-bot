@@ -304,7 +304,7 @@ def run_generate_case(
     plan_md = plan_path.read_text()
 
     try:
-        generated, result, validation, validation_retries = generate_tool(
+        generated, result, validation = generate_tool(
             plan_markdown=plan_md,
             config=config,
             api_key=api_key,
@@ -344,7 +344,7 @@ def run_generate_case(
         validation_passed=validation.valid,
         planemo_lint_passed=planemo_lint, planemo_test_passed=planemo_test,
         assertions_passed=assertions_passed, assertions_failed=assertion_failures,
-        agent_iterations=result.iterations, validation_retries=validation_retries,
+        agent_iterations=result.iterations, validation_retries=0,
         agent_terminated_naturally=result.terminated_naturally,
         gave_up=generated.give_up_reason is not None,
         files_generated=len(generated.files), error=None,
