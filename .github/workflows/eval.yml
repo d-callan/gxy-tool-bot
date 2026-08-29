@@ -57,6 +57,12 @@ jobs:
         with:
           name: eval-results
           path: eval-results.json
+      - name: Upload generated files
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-output
+          path: /tmp/eval-work/
       - name: Post summary
         if: always()
         env:
