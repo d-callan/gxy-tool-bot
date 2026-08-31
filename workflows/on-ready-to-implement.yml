@@ -142,7 +142,7 @@ jobs:
               --base "$DEFAULT_BRANCH" \
               --title "$TOOL_DIR: auto-generated tool wrapper (issue #$ISSUE_NUMBER)" \
               --body "$PR_BODY"
-            gh issue comment $ISSUE_NUMBER --body "✅ Tool generated successfully and PR opened!"
+            gh issue comment $ISSUE_NUMBER --body "✅ Tool generated successfully — PR #$PR_NUMBER is ready for review."
           fi
           # If some files were gitignored, post a comment for human review
           if [ -n "$IGNORED_FILES" ]; then
