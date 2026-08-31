@@ -1004,6 +1004,7 @@ def generate_commit_message(
             "Respond with a JSON object containing one key: "
             "\"commit_message\" (a single-line commit message, max 72 chars, summarizing what was fixed). "
             "Do not include 'Closes #N' or any issue number references — the PR is already linked to its issue. "
+            "Do not use '#' followed by a number — GitHub auto-links '#NNN' to issues/PRs and stray numbers create broken links. "
             "Do not include any text outside the JSON object."
         )
         user_prompt = (
@@ -1019,6 +1020,8 @@ def generate_commit_message(
             "Respond with a JSON object containing two keys: "
             "\"commit_message\" (a single-line commit message, max 72 chars) and "
             "\"pr_body\" (a brief markdown description of the tool and what was generated, 3-6 sentences). "
+            "Do not use '#' followed by a number unless referencing the specific issue number provided — "
+            "GitHub auto-links '#NNN' to issues/PRs and stray numbers create broken links. "
             "Do not include any text outside the JSON object."
         )
         user_prompt = (
