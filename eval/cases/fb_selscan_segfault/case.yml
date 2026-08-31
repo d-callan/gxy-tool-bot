@@ -1,0 +1,61 @@
+name: fb_selscan_segfault
+type: feedback
+difficulty: hard
+description: >
+  selscan wrapper exposes --ehh and --pi flags that segfault due to an
+  upstream bug in selscan v3.0.1. CI tests for ehh and pi fail with
+  segfault (exit code 139). The bot cannot fix this — the correct
+  response is to remove the ehh and pi options from the wrapper (or
+  give up with a clear explanation), not to keep trying to fix the
+  test data or command. Tests that the bot recognizes an unsolvable
+  upstream problem and either removes the broken options or documents
+  the issue rather than spinning endlessly.
+existing_files:
+  - selscan.xml
+  - macros.xml
+feedback:
+  review_comments:
+    - author: alice
+      file_path: selscan.xml
+      line: 30
+      body: >
+        The EHH and pi test cases are failing in CI with segfaults.
+        Can you look into this? The iHS test passes fine so the tool
+        itself is working — it seems specific to the --ehh and --pi
+        flags.
+  pr_comments: []
+  failed_checks:
+    - name: Tool tests
+      conclusion: failure
+      output: |
+        Running tests for tool: selscan
+        Test 1: statistic=ihs ... PASS
+        Test 2: statistic=ehh ... FAIL
+        Traceback (most recent call last):
+          File "planemo/runnable.py", line 123, in run
+            ...
+        Command: selscan --ehh --vcf selscan.vcf --map selscan.map --maf 0.05 --cutoff 0.05 --max-extend 1000000 --ehh-win 100000 --gap-scale 20000 --max-gap 200000 --threads 4 --out selscan
+        Exit code: 139 (segfault)
+        Test 3: statistic=pi ... FAIL
+        Command: selscan --pi --vcf selscan.vcf --maf 0.05 --cutoff 0.05 --max-extend 1000000 --ehh-win 100000 --gap-scale 20000 --max-gap 200000 --threads 4 --out selscan
+        Exit code: 139 (segfault)
+        2 of 3 tests failed.
+  ci_artifacts:
+    Tool test output/planemo_test.json: |
+      {"tests": [{"name": "Test 1: statistic=ihs", "status": "pass"}, {"name": "Test 2: statistic=ehh", "status": "error", "exit_code": 139}, {"name": "Test 3: statistic=pi", "status": "error", "exit_code": 139}]}
+assertions:
+  # The bot should remove the ehh and pi options from the select,
+  # or at minimum remove the test cases that segfault.
+  # We check that the ehh option is gone from the select param.
+  - type: xml_element_not_exists
+    file: selscan.xml
+    xpath: ".//option[@value='ehh']"
+  - type: xml_element_not_exists
+    file: selscan.xml
+    xpath: ".//option[@value='pi']"
+  # The iHS test should still be there — don't remove working tests
+  - type: file_contains
+    file: selscan.xml
+    pattern: "value=\"ihs\""
+expect_validation_pass: true
+expect_planemo_pass: true

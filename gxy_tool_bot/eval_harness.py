@@ -239,6 +239,27 @@ def run_assertion(assertion: dict, files: dict[str, bytes]) -> tuple[bool, str]:
             return False, f"Attribute '{attr}' on '{xpath}' in '{fname}' is '{actual}', expected '{expected}'"
         return True, ""
 
+    if atype == "xml_element_not_exists":
+        if fname not in files:
+            return False, f"File '{fname}' not found for XML assertion"
+        xpath = assertion.get("xpath", "")
+        try:
+            root = ET.fromstring(files[fname].decode("utf-8"))
+        except ET.ParseError as e:
+            return False, f"XML parse error in '{fname}': {e}"
+        if root.find(xpath) is not None:
+            return False, f"XPath '{xpath}' unexpectedly found in '{fname}'"
+        return True, ""
+
+    if atype == "file_not_contains":
+        if fname not in files:
+            return False, f"File '{fname}' not found for file_not_contains check"
+        pattern = assertion.get("pattern", "")
+        content = files[fname].decode("utf-8", errors="replace")
+        if re.search(pattern, content):
+            return False, f"File '{fname}' contains pattern '{pattern}' that should not be present"
+        return True, ""
+
     return False, f"Unknown assertion type: '{atype}'"
 
 

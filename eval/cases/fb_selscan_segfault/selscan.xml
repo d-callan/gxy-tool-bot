@@ -1,0 +1,132 @@
+<?xml version="1.0"?>
+<tool id="selscan" name="selscan" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="@PROFILE@">
+    <description>EHH-based haplotype scans for positive selection</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+    <expand macro="bio_tools"/>
+    <expand macro="requirements"/>
+    <expand macro="version_command"/>
+    <command detect_errors="aggressive"><![CDATA[
+#set $stat = str($statistic)
+#set $outname = 'selscan.' + $stat + '.out'
+#if $alt
+  #set $outname = $outname + '.alt'
+#end if
+selscan
+#if $stat == 'ihs'
+  --ihs
+#elif $stat == 'nsl'
+  --nsl
+#elif $stat == 'xpehh'
+  --xpehh
+#elif $stat == 'xpnsl'
+  --xpnsl
+#elif $stat == 'ihh12'
+  --ihh12
+#elif $stat == 'ehh'
+  --ehh
+#elif $stat == 'pi'
+  --pi
+#end if
+--vcf '$in_file'
+#if $ref_file
+  --vcf-ref '$ref_file'
+#end if
+#if $map_file
+  --map '$map_file'
+#end if
+--maf $maf
+--cutoff $cutoff
+--max-extend $max_extend
+--ehh-win $ehh_win
+--gap-scale $gap_scale
+--max-gap $max_gap
+#if $keep_low_freq
+  --keep-low-freq
+#end if
+#if $trunc_ok
+  --trunc-ok
+#end if
+#if $alt
+  --alt
+#end if
+--threads \${GALAXY_SLOTS:-4}
+--out selscan
+&&
+mv '$outname' '$out_file'
+    ]]></command>
+    <inputs>
+        <param name="statistic" type="select" label="Statistic to compute">
+            <option value="ihs">iHS</option>
+            <option value="nsl">nSL</option>
+            <option value="xpehh">XP-EHH</option>
+            <option value="xpnsl">XP-nSL</option>
+            <option value="ihh12">iHH12</option>
+            <option value="ehh">EHH</option>
+            <option value="pi">pi</option>
+        </param>
+        <param name="in_file" type="data" format="vcf,vcf_bgzip" label="Phased VCF"/>
+        <param name="ref_file" type="data" format="vcf,vcf_bgzip" optional="true" label="Reference population VCF"/>
+        <param name="map_file" type="data" format="tabular" optional="true" label="Genetic map"/>
+        <param name="maf" type="float" value="0.05" min="0" max="0.5" label="Minor allele frequency cutoff"/>
+        <param name="cutoff" type="float" value="0.05" min="0" max="0.5" label="EHH decay cutoff"/>
+        <param name="max_extend" type="integer" value="1000000" min="1" label="Maximum extension distance (bp)"/>
+        <param name="ehh_win" type="integer" value="100000" min="1" label="EHH window size (bp)"/>
+        <param name="gap_scale" type="integer" value="20000" min="1" label="Gap scale"/>
+        <param name="max_gap" type="integer" value="200000" min="1" label="Maximum gap (bp)"/>
+        <param name="keep_low_freq" type="boolean" checked="false" label="Keep low frequency sites"/>
+        <param name="trunc_ok" type="boolean" checked="false" label="Allow truncated EHH"/>
+        <param name="alt" type="boolean" checked="false" label="Compute alternate allele scores"/>
+    </inputs>
+    <outputs>
+        <data name="out_file" format="tabular" label="${tool.name} ${statistic} on ${on_string}"/>
+    </outputs>
+    <tests>
+        <test expect_num_outputs="1">
+            <param name="statistic" value="ihs"/>
+            <param name="in_file" value="selscan.vcf" ftype="vcf"/>
+            <param name="map_file" value="selscan.map" ftype="tabular"/>
+            <output name="out_file" ftype="tabular">
+                <assert_contents>
+                    <has_text text="ihs"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="1">
+            <param name="statistic" value="ehh"/>
+            <param name="in_file" value="selscan.vcf" ftype="vcf"/>
+            <param name="map_file" value="selscan.map" ftype="tabular"/>
+            <output name="out_file" ftype="tabular">
+                <assert_contents>
+                    <has_text text="ehh"/>
+                </assert_contents>
+            </output>
+        </test>
+        <test expect_num_outputs="1">
+            <param name="statistic" value="pi"/>
+            <param name="in_file" value="selscan.vcf" ftype="vcf"/>
+            <output name="out_file" ftype="tabular">
+                <assert_contents>
+                    <has_text text="pi"/>
+                </assert_contents>
+            </output>
+        </test>
+    </tests>
+    <help format="markdown"><![CDATA[
+**What it does**
+
+selscan calculates EHH-based haplotype scans for positive selection.
+
+**Statistics**
+
+- **iHS** — integrated haplotype score
+- **nSL** — number of segregating sites by length
+- **XP-EHH** — cross-population EHH
+- **XP-nSL** — cross-population nSL
+- **iHH12** — detects hard and soft sweeps
+- **EHH** — extended haplotype homozygosity
+- **pi** — nucleotide diversity
+    ]]></help>
+    <expand macro="citations"/>
+</tool>
