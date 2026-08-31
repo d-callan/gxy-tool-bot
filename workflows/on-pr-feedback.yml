@@ -1,16 +1,34 @@
 on:
   pull_request:
     types: [labeled]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number to address feedback on"
+        required: true
+        type: string
+      max_iterations:
+        description: "Override max tool iterations per round (blank = config default)"
+        required: false
+        type: string
+        default: ""
+      max_retries:
+        description: "Override max validation retry rounds (blank = config default)"
+        required: false
+        type: string
+        default: ""
 
 jobs:
   address-feedback:
     name: Address PR Feedback
-    if: contains(github.event.pull_request.labels.*.name, 'address-feedback')
+    if: contains(github.event.pull_request.labels.*.name, 'address-feedback') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    env:
+      PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.ref }}
+          ref: ${{ github.event.pull_request.head.ref || '' }}
           fetch-depth: 0
       - name: Restore config from default branch
         run: |
@@ -20,7 +38,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh pr comment ${{ github.event.pull_request.number }} --body "🔧 Addressing feedback — [view progress](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+          gh pr comment $PR_NUMBER --body "🔧 Addressing feedback — [view progress](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -34,7 +52,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh pr edit ${{ github.event.pull_request.number }} \
+          gh pr edit $PR_NUMBER \
             --remove-label "address-feedback" || true
       - name: Find tool directory
         id: find_tool_dir
@@ -42,7 +60,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # PR title format: "tool_dir: auto-generated tool wrapper (issue #N)"
-          PR_TITLE=$(gh pr view ${{ github.event.pull_request.number }} --json title --jq '.title' 2>/dev/null || echo "")
+          PR_TITLE=$(gh pr view $PR_NUMBER --json title --jq '.title' 2>/dev/null || echo "")
           TOOL_DIR=$(echo "$PR_TITLE" | cut -d':' -f1 | xargs)
           # Fallback: check for .tool-name in the PR branch
           if [ -z "$TOOL_DIR" ] && [ -f tools/*/.tool-name ]; then
@@ -61,12 +79,20 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REF_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
+          OVERRIDE_ARGS=""
+          if [ -n "${{ inputs.max_iterations }}" ]; then
+            OVERRIDE_ARGS="$OVERRIDE_ARGS --max-iterations ${{ inputs.max_iterations }}"
+          fi
+          if [ -n "${{ inputs.max_retries }}" ]; then
+            OVERRIDE_ARGS="$OVERRIDE_ARGS --max-retries ${{ inputs.max_retries }}"
+          fi
           gxy-tool-bot address-feedback \
-            --pr ${{ github.event.pull_request.number }} \
+            --pr $PR_NUMBER \
             --config .gxy-tool-bot.yml \
             --tool-dir tools/${{ steps.find_tool_dir.outputs.tool_dir }} \
-            --actor ${{ github.event.sender.login }} \
-            --commit-msg-path $GITHUB_WORKSPACE/.commit-msg
+            --actor ${{ github.event.sender.login || 'manual' }} \
+            --commit-msg-path $GITHUB_WORKSPACE/.commit-msg \
+            $OVERRIDE_ARGS
       - name: Format updated XML with planemo
         if: steps.address.outcome == 'success'
         run: |
@@ -91,7 +117,7 @@ jobs:
             if [ -f "$GITHUB_WORKSPACE/.commit-msg" ]; then
               COMMIT_MSG=$(cat "$GITHUB_WORKSPACE/.commit-msg")
             else
-              COMMIT_MSG="Address feedback on PR #${{ github.event.pull_request.number }}"
+              COMMIT_MSG="Address feedback on PR #$PR_NUMBER"
             fi
             git commit -m "$COMMIT_MSG"
             git push
@@ -105,7 +131,7 @@ jobs:
               IGNORED_MSG+=" - \`$f\`\n"
             done
             IGNORED_MSG+="\nThese files are needed for the tool tests. To include them, a maintainer can run \`git add -f\` for each file, or download them from the [workflow artifacts](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
-            gh pr comment ${{ github.event.pull_request.number }} --body "$(echo -e "$IGNORED_MSG")"
+            gh pr comment $PR_NUMBER --body "$(echo -e "$IGNORED_MSG")"
           fi
       - name: Upload gitignored files as artifacts
         if: steps.address.outcome == 'success'
@@ -121,7 +147,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if [ -f "$GITHUB_WORKSPACE/.validation-failed" ]; then
-            gh pr comment ${{ github.event.pull_request.number }} --body "⚠️ Validation issues were found after addressing feedback. Add the \`address-feedback\` label to have the bot attempt fixes again."
+            gh pr comment $PR_NUMBER --body "⚠️ Validation issues were found after addressing feedback. Add the \`address-feedback\` label to have the bot attempt fixes again."
             rm -f "$GITHUB_WORKSPACE/.validation-failed"
           fi
       - name: Handle failure
@@ -129,4 +155,4 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh pr comment ${{ github.event.pull_request.number }} --body "⚠️ Failed to address feedback. Check the [workflow logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details."
+          gh pr comment $PR_NUMBER --body "⚠️ Failed to address feedback. Check the [workflow logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details."

@@ -131,7 +131,9 @@ def plan(issue: int, config_path: str) -> None:
 @click.option("--actor", default=None, help="GitHub user who triggered the action (for maintainer check)")
 @click.option("--commit-msg-path", "commit_msg_path", type=click.Path(), default=None, help="Path to write the generated commit message")
 @click.option("--pr-body-path", "pr_body_path", type=click.Path(), default=None, help="Path to write the generated PR body")
-def generate(issue: int, config_path: str, output_dir: str, actor: str | None, commit_msg_path: str | None, pr_body_path: str | None) -> None:
+@click.option("--max-iterations", "max_iterations", type=int, default=None, help="Override max tool iterations per round (default: config)")
+@click.option("--max-retries", "max_retries", type=int, default=None, help="Override max validation retry rounds (default: config or scaled)")
+def generate(issue: int, config_path: str, output_dir: str, actor: str | None, commit_msg_path: str | None, pr_body_path: str | None, max_iterations: int | None, max_retries: int | None) -> None:
     """Generate tool files from a plan in a GitHub issue."""
     config = load_config(Path(config_path))
     api_key = os.environ.get(config.api.api_key_env)
@@ -165,7 +167,11 @@ def generate(issue: int, config_path: str, output_dir: str, actor: str | None, c
 
         logger.info("Generating tool from plan on issue #%d", issue)
         try:
-            generated, result, validation = generate_tool(plan_md, config, api_key, Path(output_dir))
+            generated, result, validation = generate_tool(
+                plan_md, config, api_key, Path(output_dir),
+                max_iterations_override=max_iterations,
+                max_validation_retries_override=max_retries,
+            )
         except Exception as exc:
             logger.exception("Tool generation failed")
             gh.add_comment(issue, f"⚠️ Tool generation failed: {exc}\n\nAdd the `retry-generate` label to try again.")
@@ -260,7 +266,9 @@ def generate(issue: int, config_path: str, output_dir: str, actor: str | None, c
 @click.option("--tool-dir", "tool_dir", type=click.Path(), required=True, help="Path to the existing tool directory in the PR branch")
 @click.option("--actor", default=None, help="GitHub user who triggered the action (for maintainer check)")
 @click.option("--commit-msg-path", "commit_msg_path", type=click.Path(), default=None, help="Path to write the generated commit message")
-def address_feedback_cmd(pr_number: int, config_path: str, tool_dir: str, actor: str | None, commit_msg_path: str | None) -> None:
+@click.option("--max-iterations", "max_iterations", type=int, default=None, help="Override max tool iterations per round (default: config)")
+@click.option("--max-retries", "max_retries", type=int, default=None, help="Override max validation retry rounds (default: config)")
+def address_feedback_cmd(pr_number: int, config_path: str, tool_dir: str, actor: str | None, commit_msg_path: str | None, max_iterations: int | None, max_retries: int | None) -> None:
     """Address feedback on an existing PR by fixing tool files."""
     config = load_config(Path(config_path))
     api_key = os.environ.get(config.api.api_key_env)
@@ -291,6 +299,8 @@ def address_feedback_cmd(pr_number: int, config_path: str, tool_dir: str, actor:
                 api_key=api_key,
                 tool_dir=Path(tool_dir),
                 gh=gh,
+                max_iterations_override=max_iterations,
+                max_validation_retries_override=max_retries,
             )
         except Exception as exc:
             logger.exception("Addressing feedback failed")

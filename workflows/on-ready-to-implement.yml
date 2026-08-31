@@ -1,14 +1,33 @@
 on:
   issues:
     types: [labeled]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: "Issue number to generate from"
+        required: true
+        type: string
+      max_iterations:
+        description: "Override max tool iterations per round (blank = config default)"
+        required: false
+        type: string
+        default: ""
+      max_retries:
+        description: "Override max validation retry rounds (blank = config default)"
+        required: false
+        type: string
+        default: ""
 
 jobs:
   generate:
     name: Generate Tool Files
     if: |
       github.event.label.name == 'ready-to-implement' ||
-      github.event.label.name == 'retry-generate'
+      github.event.label.name == 'retry-generate' ||
+      github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    env:
+      ISSUE_NUMBER: ${{ github.event.issue.number || inputs.issue_number }}
     # Note: if allowed_maintainers is configured, the CLI verifies
     # github.event.actor is in the list and exits with code 1 if not.
     steps:
@@ -17,7 +36,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh issue comment ${{ github.event.issue.number }} --body "🔄 Tool generation started — [view progress](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+          gh issue comment $ISSUE_NUMBER --body "🔄 Tool generation started — [view progress](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -32,9 +51,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh issue edit ${{ github.event.issue.number }} \
+          gh issue edit $ISSUE_NUMBER \
             --remove-label "retry-generate" || true
-          gh issue edit ${{ github.event.issue.number }} \
+          gh issue edit $ISSUE_NUMBER \
             --remove-label "generation-failed" || true
       - name: Generate tool files
         id: generate
@@ -43,11 +62,18 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REF_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
+          OVERRIDE_ARGS=""
+          if [ -n "${{ inputs.max_iterations }}" ]; then
+            OVERRIDE_ARGS="$OVERRIDE_ARGS --max-iterations ${{ inputs.max_iterations }}"
+          fi
+          if [ -n "${{ inputs.max_retries }}" ]; then
+            OVERRIDE_ARGS="$OVERRIDE_ARGS --max-retries ${{ inputs.max_retries }}"
+          fi
           gxy-tool-bot generate \
-            --issue ${{ github.event.issue.number }} \
+            --issue $ISSUE_NUMBER \
             --config .gxy-tool-bot.yml \
             --output generated/ \
-            --actor ${{ github.event.sender.login }} \
+            --actor ${{ github.event.sender.login || 'manual' }} \
             --commit-msg-path $GITHUB_WORKSPACE/.commit-msg \
             --pr-body-path $GITHUB_WORKSPACE/.pr-body
       - name: Format generated XML with planemo
@@ -65,7 +91,7 @@ jobs:
           git config user.email "gxy-tool-bot@users.noreply.github.com"
           TOOL_DIR=$(cat generated/.tool-name)
           echo "tool_dir=$TOOL_DIR" >> $GITHUB_OUTPUT
-          BRANCH="tool-bot/issue-${{ github.event.issue.number }}"
+          BRANCH="tool-bot/issue-$ISSUE_NUMBER"
           DEFAULT_BRANCH=${{ github.event.repository.default_branch }}
           git fetch origin "$DEFAULT_BRANCH"
           # Check if branch already exists (re-run scenario)
@@ -91,7 +117,7 @@ jobs:
           if [ -f "$GITHUB_WORKSPACE/.commit-msg" ]; then
             COMMIT_MSG=$(cat "$GITHUB_WORKSPACE/.commit-msg")
           else
-            COMMIT_MSG=$(printf "Generate tool for issue #%s\n\nCloses #%s" "${{ github.event.issue.number }}" "${{ github.event.issue.number }}")
+            COMMIT_MSG=$(printf "Generate tool for issue #%s\n\nCloses #%s" "$ISSUE_NUMBER" "$ISSUE_NUMBER")
           fi
           git commit -m "$COMMIT_MSG"
           git push origin "$BRANCH" --force
@@ -99,7 +125,7 @@ jobs:
           PR_NUMBER=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number' 2>/dev/null || echo "")
           if [ -n "$PR_NUMBER" ]; then
             gh pr comment "$PR_NUMBER" --body "🔄 Tool regenerated — previous files overwritten. [View workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
-            gh issue comment ${{ github.event.issue.number }} --body "🔄 Tool regenerated and PR #$PR_NUMBER updated — previous files overwritten."
+            gh issue comment $ISSUE_NUMBER --body "🔄 Tool regenerated and PR #$PR_NUMBER updated — previous files overwritten."
           else
             # PR title format: "tool_dir: auto-generated tool wrapper (issue #N)"
             # The address-feedback workflow parses this title (cut -d':' -f1) to find
@@ -109,14 +135,14 @@ jobs:
             if [ -f "$GITHUB_WORKSPACE/.pr-body" ]; then
               PR_BODY=$(cat "$GITHUB_WORKSPACE/.pr-body")
             else
-              PR_BODY=$(printf "Generated by gxy-tool-bot for issue #%s\n\n---\n\n## Working on this tool\n\nTo review or improve this tool locally:\n\n**If you don't have the repo yet** (forks and clones in one step):\n\n```bash\ngh repo fork %s --clone\ncd %s\ngit checkout %s\n```\n\n**If you already have the repo:**\n\n```bash\ngit fetch origin\ngit checkout %s\n```\n\nThe tool files are in \`tools/%s/\`." "${{ github.event.issue.number }}" "${{ github.repository }}" "${{ github.event.repository.name }}" "$BRANCH" "$BRANCH" "$TOOL_DIR")
+              PR_BODY=$(printf "Generated by gxy-tool-bot for issue #%s\n\n---\n\n## Working on this tool\n\nTo review or improve this tool locally:\n\n**If you don't have the repo yet** (forks and clones in one step):\n\n```bash\ngh repo fork %s --clone\ncd %s\ngit checkout %s\n```\n\n**If you already have the repo:**\n\n```bash\ngit fetch origin\ngit checkout %s\n```\n\nThe tool files are in \`tools/%s/\`." "$ISSUE_NUMBER" "${{ github.repository }}" "${{ github.event.repository.name }}" "$BRANCH" "$BRANCH" "$TOOL_DIR")
             fi
             gh pr create \
               --head "$BRANCH" \
               --base "$DEFAULT_BRANCH" \
-              --title "$TOOL_DIR: auto-generated tool wrapper (issue #${{ github.event.issue.number }})" \
+              --title "$TOOL_DIR: auto-generated tool wrapper (issue #$ISSUE_NUMBER)" \
               --body "$PR_BODY"
-            gh issue comment ${{ github.event.issue.number }} --body "✅ Tool generated successfully and PR opened!"
+            gh issue comment $ISSUE_NUMBER --body "✅ Tool generated successfully and PR opened!"
           fi
           # If some files were gitignored, post a comment for human review
           if [ -n "$IGNORED_FILES" ]; then
@@ -127,7 +153,7 @@ jobs:
             IGNORED_MSG+="\nThese files are needed for the tool tests. To include them, a maintainer can run \`git add -f\` for each file, or download them from the [workflow artifacts](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
             gh pr comment "$PR_NUMBER" --body "$(echo -e "$IGNORED_MSG")"
           fi
-          gh issue edit ${{ github.event.issue.number }} --add-label "pr-opened"
+          gh issue edit $ISSUE_NUMBER --add-label "pr-opened"
           # Clean up intermediary files
           rm -f "$GITHUB_WORKSPACE/.commit-msg" "$GITHUB_WORKSPACE/.pr-body"
       - name: Upload gitignored files as artifacts
@@ -145,7 +171,7 @@ jobs:
         run: |
           TOOL_DIR="${{ steps.create_pr.outputs.tool_dir }}"
           if [ -f "$GITHUB_WORKSPACE/.validation-failed" ]; then
-            PR_NUMBER=$(gh pr list --head "tool-bot/issue-${{ github.event.issue.number }}" --state open --json number --jq '.[0].number' 2>/dev/null || echo "")
+            PR_NUMBER=$(gh pr list --head "tool-bot/issue-$ISSUE_NUMBER" --state open --json number --jq '.[0].number' 2>/dev/null || echo "")
             if [ -n "$PR_NUMBER" ]; then
               gh pr comment "$PR_NUMBER" --body "⚠️ Validation issues were found during generation. See the PR description for details, or add the \`address-feedback\` label to have the bot attempt fixes."
             fi
@@ -156,12 +182,12 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh issue comment ${{ github.event.issue.number }} --body "⚠️ Tool generation failed. Check the [workflow logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details. Add the \`retry-generate\` label to try again."
-          gh issue edit ${{ github.event.issue.number }} --add-label "generation-failed"
+          gh issue comment $ISSUE_NUMBER --body "⚠️ Tool generation failed. Check the [workflow logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details. Add the \`retry-generate\` label to try again."
+          gh issue edit $ISSUE_NUMBER --add-label "generation-failed"
       - name: Handle PR creation failure
         if: steps.create_pr.outcome == 'failure'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh issue comment ${{ github.event.issue.number }} --body "⚠️ Files were generated but PR creation failed. Check the [workflow logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details. Add the \`retry-generate\` label to try again."
-          gh issue edit ${{ github.event.issue.number }} --add-label "generation-failed"
+          gh issue comment $ISSUE_NUMBER --body "⚠️ Files were generated but PR creation failed. Check the [workflow logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details. Add the \`retry-generate\` label to try again."
+          gh issue edit $ISSUE_NUMBER --add-label "generation-failed"

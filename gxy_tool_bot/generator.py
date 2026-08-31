@@ -861,6 +861,8 @@ def generate_tool(
     config: BotConfig,
     api_key: str,
     output_dir: Path,
+    max_iterations_override: int | None = None,
+    max_validation_retries_override: int | None = None,
 ) -> tuple[GeneratedTool, AgentResult, ValidationResult]:
     """
     Full generation pipeline:
@@ -918,15 +920,17 @@ def generate_tool(
     # get more rounds (e.g. 3 rounds of 30 → 4 rounds of 30) rather than
     # marginally longer rounds (3 rounds of 30 → 3 rounds of 31).
     # validation_retries_per_extra_tool_xml=0 (default) disables scaling.
-    max_validation_retries_override: int | None = None
+    # CLI overrides (if provided) take precedence over scaling.
+    scaled_retries: int | None = None
     increment = config.api.validation_retries_per_extra_tool_xml
     if increment > 0:
         num_xmls = count_tool_xmls_in_plan(plan_markdown)
-        max_validation_retries_override = config.api.max_validation_retries + increment * max(0, num_xmls - 1)
+        scaled_retries = config.api.max_validation_retries + increment * max(0, num_xmls - 1)
         logger.info(
             "Scaled validation retries: %d baseline + %d * (%d tool XMLs - 1) = %d rounds of %d iterations",
-            config.api.max_validation_retries, increment, num_xmls, max_validation_retries_override, config.api.max_tool_iterations,
+            config.api.max_validation_retries, increment, num_xmls, scaled_retries, config.api.max_tool_iterations,
         )
+    effective_retries_override = max_validation_retries_override if max_validation_retries_override is not None else scaled_retries
 
     with ApiClient(config.api.base_url, api_key, config.api.model, read_timeout=config.api.read_timeout, fallback_models=config.api.fallback_models) as client:
         result, files, validation, _validation_retries = run_agent_with_validation(
@@ -937,7 +941,8 @@ def generate_tool(
             file_writer=file_writer,
             config=config,
             no_files_nudge=no_files_nudge,
-            max_validation_retries_override=max_validation_retries_override,
+            max_validation_retries_override=effective_retries_override,
+            max_iterations_override=max_iterations_override,
         )
 
     # Integrated self-review: if enabled, run review on the generated files

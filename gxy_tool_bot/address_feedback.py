@@ -231,6 +231,8 @@ def address_feedback(
     api_key: str,
     tool_dir: Path,
     gh: GitHubClient,
+    max_iterations_override: int | None = None,
+    max_validation_retries_override: int | None = None,
 ) -> tuple[GeneratedTool, AgentResult, ValidationResult]:
     """
     Address feedback on an existing PR:
@@ -292,6 +294,8 @@ def address_feedback(
             config=config,
             no_files_nudge=no_files_nudge,
             write_tools=_WRITE_TOOLS,
+            max_iterations_override=max_iterations_override,
+            max_validation_retries_override=max_validation_retries_override,
         )
 
     # Integrated self-review: if enabled, run review on the updated files
