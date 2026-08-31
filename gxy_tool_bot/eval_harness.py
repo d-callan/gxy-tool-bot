@@ -426,9 +426,11 @@ def run_feedback_case(
         user_prompt += (
             "\n\n---\n\n## Agent Notes\n\n"
             "If a `.agent-notes` file exists, use `read_file` to read it for context on "
-            "decisions made during generation. After fixing the issues, call `add_agent_notes` "
-            "to append a new feedback round section with concise notes on what you changed "
-            "and why. Focus only on things not obvious from the files themselves."
+            "decisions made during generation or previous feedback rounds. "
+            "Write notes incrementally as you work — call `add_agent_notes` each time you "
+            "discover something worth noting (e.g. an upstream bug, a workaround, a failed "
+            "approach). Do NOT wait until the end, as you may run out of iterations before "
+            "you get there. Without these notes, the next feedback round starts from scratch."
         )
 
     # Set up file writer with existing files loaded

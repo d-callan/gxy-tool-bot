@@ -237,7 +237,11 @@ def run_agent_loop(
                     f"You have {max_iterations - iteration + 1} iterations remaining. "
                     "If you have not already started writing files, stop researching now "
                     "and use write_file to create all remaining tool files. "
-                    "You do not need to investigate further — use what you already know."
+                    "You do not need to investigate further — use what you already know. "
+                    "If `add_agent_notes` is available, call it now with notes on what you've "
+                    "learned so far — do not wait, as you may not get another chance. "
+                    "Your final message should summarize what you accomplished and what "
+                    "remains unfinished."
                 ),
             })
 

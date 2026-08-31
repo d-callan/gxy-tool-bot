@@ -693,7 +693,11 @@ def _build_tool_definitions(file_writer: FileWriter, config: BotConfig | None = 
                 "Focus ONLY on things not obvious from the other files: rationale for "
                 "non-obvious decisions, unexpected issues that arose, trade-offs made. "
                 "Keep it brief and human-readable. This file is append-only — existing "
-                "content is never removed. Call this once at the end of your work."
+                "content is never removed. "
+                "Write notes incrementally as you discover things worth noting — do not "
+                "wait until the end, as you may run out of iterations. Call this each "
+                "time you learn something a future reviewer or feedback round would "
+                "benefit from knowing."
             ),
             parameters={
                 "type": "object",
@@ -893,10 +897,11 @@ def generate_tool(
     if config.agent_notes:
         user_prompt += (
             "\n\n---\n\n## Agent Notes\n\n"
-            "After writing all files, call `add_agent_notes` with concise notes for human "
-            "reviewers. Focus ONLY on things not obvious from the files themselves: rationale "
-            "for non-obvious decisions, unexpected issues that arose, trade-offs made. "
-            "Keep it brief."
+            "Write notes incrementally as you work — call `add_agent_notes` each time you "
+            "discover something worth noting (e.g. a non-obvious dependency, an upstream "
+            "issue, a workaround). Do NOT wait until the end, as you may run out of "
+            "iterations before you get there. These notes persist across feedback rounds "
+            "and help the next round avoid repeating your dead ends."
         )
 
     # Set up file writer and tools
