@@ -171,16 +171,34 @@ def _build_feedback_user_prompt(ctx: FeedbackContext) -> str:
     parts.append("")
     parts.append("---\n")
 
-    # PR comments (general) — filter out bot's own comments
-    human_comments = [
-        c for c in ctx.pr_comments
-        if "github-actions" not in c.author.lower() and "gxy-tool-bot" not in c.author.lower()
-    ]
+    # PR comments (general) — separate human comments from bot comments.
+    # Bot comments (review findings, previous summaries) are included in
+    # their own section so the feedback flow has context from prior rounds
+    # without relying solely on .agent-notes.
+    _BOT_AUTHORS = ("github-actions", "gxy-tool-bot")
+    # Bot comments worth keeping: review findings, generate/feedback summaries.
+    # Status comments (e.g. "🔧 Addressing feedback — view progress") are excluded.
+    _BOT_KEEP_MARKERS = ("## Tool Review:", "📦 Tool files generated", "🔧 Addressed feedback")
+
+    def _is_bot(c: Comment) -> bool:
+        return any(a in c.author.lower() for a in _BOT_AUTHORS)
+
+    def _is_useful_bot_comment(c: Comment) -> bool:
+        return c.body.lstrip().startswith(_BOT_KEEP_MARKERS)
+
+    human_comments = [c for c in ctx.pr_comments if not _is_bot(c)]
+    useful_bot_comments = [c for c in ctx.pr_comments if _is_bot(c) and _is_useful_bot_comment(c)]
 
     if human_comments:
         parts.append("## Maintainer Comments\n")
         for c in human_comments:
             parts.append(f"**{c.author}:**\n{c.body}\n")
+        parts.append("---\n")
+
+    if useful_bot_comments:
+        parts.append("## Previous Bot Comments (review findings & summaries)\n")
+        for c in useful_bot_comments:
+            parts.append(f"{c.body}\n")
         parts.append("---\n")
 
     # Review comments (inline) — include file path and line number
