@@ -86,7 +86,12 @@ class FileWriter:
         try:
             content = src.read_text(encoding="utf-8")
         except (UnicodeDecodeError, OSError):
-            content = src.read_bytes().decode("utf-8", errors="replace")
+            # File is binary — don't corrupt it by decoding with errors=replace.
+            # Return a clear message so the bot knows not to round-trip it through write_file.
+            return (
+                f"Error: file '{path}' is binary and cannot be read as text. "
+                "Use `track_file` to include it in the PR without reading its contents."
+            )
 
         lines = content.splitlines()
         start_line = args.get("start_line")
@@ -441,6 +446,28 @@ class FileWriter:
         except Exception as e:
             return f"Error: {e}"
 
+    def track_file(self, args: dict) -> str:
+        """Track a file already on disk (e.g. produced by run_in_conda) as a generated file.
+
+        This is the only way to include binary files in the PR — write_file rejects
+        binary content, and round-tripping through read_file corrupts non-UTF-8 bytes.
+        """
+        path = args.get("path", "")
+        if not path:
+            return "Error: path is required"
+        dest = (self.output_dir / path).resolve()
+        # Prevent path traversal
+        try:
+            dest.relative_to(self.output_dir.resolve())
+        except ValueError:
+            return "Error: path must be within the tool directory"
+        if not dest.exists():
+            return f"Error: file '{path}' does not exist on disk"
+        content = dest.read_bytes()
+        self.files[path] = content
+        logger.info("Tracked file %s (%d bytes)", path, len(content))
+        return f"Tracked '{path}' ({len(content)} bytes)"
+
     def download_file_handler(self, args: dict) -> str:
         url = args.get("url", "")
         dest_path = args.get("path", "")
@@ -782,6 +809,28 @@ def _build_tool_definitions(file_writer: FileWriter, config: BotConfig | None = 
             handler=file_writer.run_in_conda,
             timeout=360,
         ))
+        tools.append(ToolDefinition(
+            name="track_file",
+            description=(
+                "Track a file already on disk as a generated file so it gets included in the PR. "
+                "Use this for files produced by run_in_conda that you want in the PR — especially "
+                "binary files (HDF5, BAM, bgzipped) that cannot be read with read_file or written "
+                "with write_file. The path must be relative to the tool directory and the file "
+                "must already exist on disk."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Relative path to the file on disk (e.g. 'test-data/lookup_table.h5')",
+                    },
+                },
+                "required": ["path"],
+            },
+            handler=file_writer.track_file,
+            timeout=30,
+        ))
 
     return tools
 
@@ -946,6 +995,7 @@ def generate_tool(
             file_writer=file_writer,
             config=config,
             no_files_nudge=no_files_nudge,
+            write_tools={"write_file", "compress_file", "download_file", "track_file"},
             max_validation_retries_override=effective_retries_override,
             max_iterations_override=max_iterations_override,
         )

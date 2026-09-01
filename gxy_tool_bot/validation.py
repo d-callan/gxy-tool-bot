@@ -427,6 +427,47 @@ def _check_urls_resolve(urls: list[tuple[str, str]]) -> list[tuple[str, str]]:
     return bad
 
 
+def _detect_strays(file_writer: FileWriter) -> list[str]:
+    """Detect files on disk not tracked by file_writer.
+
+    Returns relative paths of files that exist in the output directory but
+    were not created via write_file/compress_file/download_file/track_file.
+    Excludes .tool-name and .agent-notes which are bot-managed metadata files.
+    """
+    tracked = {p.replace("\\", "/") for p in file_writer.files}
+    output_dir = file_writer.output_dir.resolve()
+    strays = []
+    for f in output_dir.rglob("*"):
+        if not f.is_file():
+            continue
+        rel = f.resolve().relative_to(output_dir).as_posix()
+        if rel in (".tool-name", ".agent-notes"):
+            continue
+        if rel not in tracked:
+            strays.append(rel)
+    return strays
+
+
+def _fold_strays(validation: ValidationResult, strays: list[str]) -> ValidationResult:
+    """Fail validation if any untracked files exist on disk.
+
+    Files created directly by run_in_conda (or left behind by any tool call)
+    are not automatically included in the PR — the agent must explicitly
+    call track_file (for binary output) or delete_file (to discard them).
+    An untracked file is treated as an unresolved validation error so the
+    agent is forced to make a decision about every file before finishing.
+    """
+    if not strays:
+        return validation
+    stray_errors = [
+        f"File '{s}' exists in the output directory but was not tracked via "
+        "write_file/compress_file/download_file/track_file. Call track_file to include "
+        "it in the PR, or delete_file to remove it if it's not needed."
+        for s in strays
+    ]
+    return ValidationResult(valid=False, errors=validation.errors + stray_errors)
+
+
 def run_agent_with_validation(
     client: ApiClient,
     system_prompt: str,
@@ -480,30 +521,11 @@ def run_agent_with_validation(
     ]
     validation = validate_generated_files(files)
 
-    # Check for stray files on disk that aren't tracked in file_writer.files.
-    # In generate mode the output dir starts empty, so any untracked file is
-    # likely a stray from run_in_conda or another tool. In feedback/review
-    # mode the tool dir may have pre-existing untracked files (binary test
-    # data, etc.), so we skip this check to avoid false positives.
-    if file_writer.mode == "generate":
-        tracked = {p.replace("\\", "/") for p in file_writer.files}
-        output_dir = file_writer.output_dir.resolve()
-        for f in output_dir.rglob("*"):
-            if not f.is_file():
-                continue
-            rel = f.resolve().relative_to(output_dir).as_posix()
-            if rel == ".tool-name":
-                continue
-            if rel not in tracked:
-                validation = ValidationResult(
-                    valid=False,
-                    errors=validation.errors + [
-                        f"Stray file '{rel}' exists in the output directory but was not "
-                        "created with write_file/compress_file/download_file. Remove it "
-                        "with delete_file, or if it was created by run_in_conda, it should "
-                        "have been cleaned up automatically — this is likely a bug."
-                    ],
-                )
+    # Detect files on disk that the agent hasn't explicitly tracked (e.g. left
+    # behind by run_in_conda). These fail validation until the agent tracks
+    # them with track_file or removes them with delete_file.
+    strays = _detect_strays(file_writer)
+    validation = _fold_strays(validation, strays)
 
     validation_retries = 0
 
@@ -588,6 +610,8 @@ def run_agent_with_validation(
             for p, c in sorted(file_writer.files.items())
         ]
         validation = validate_generated_files(files)
+        strays = _detect_strays(file_writer)
+        validation = _fold_strays(validation, strays)
 
     if not validation.valid:
         logger.warning("Validation errors after %d retries: %s", max_validation_retries, validation.errors)

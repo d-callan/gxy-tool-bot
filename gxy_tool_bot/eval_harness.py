@@ -461,7 +461,7 @@ def run_feedback_case(
 
     tools = _build_tool_definitions(file_writer, config)
 
-    _WRITE_TOOLS = {"write_file", "compress_file", "download_file"}
+    _WRITE_TOOLS = {"write_file", "compress_file", "download_file", "track_file"}
     no_files_nudge = (
         "No files were modified in the previous attempt. The agent spent all iterations"
         " on research instead of fixing the issues.\n\n"

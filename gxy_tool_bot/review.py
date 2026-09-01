@@ -421,6 +421,28 @@ def _build_review_tool_definitions(file_writer: FileWriter) -> list[ToolDefiniti
             handler=file_writer.run_in_conda,
             timeout=360,
         ))
+        tools.append(ToolDefinition(
+            name="track_file",
+            description=(
+                "Track a file already on disk as a generated file so it gets included in the PR. "
+                "Use this for files produced by run_in_conda that you want in the PR — especially "
+                "binary files (HDF5, BAM, bgzipped) that cannot be read with read_file or written "
+                "with write_file. The path must be relative to the tool directory and the file "
+                "must already exist on disk."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Relative path to the file on disk (e.g. 'test-data/lookup_table.h5')",
+                    },
+                },
+                "required": ["path"],
+            },
+            handler=file_writer.track_file,
+            timeout=30,
+        ))
 
     return tools
 

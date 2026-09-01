@@ -293,7 +293,7 @@ def address_feedback(
     # We check the tool call trace for write_file/compress_file/download_file
     # calls rather than comparing file sets, since feedback mode overwrites
     # existing files (same keys, new content).
-    _WRITE_TOOLS = {"write_file", "compress_file", "download_file"}
+    _WRITE_TOOLS = {"write_file", "compress_file", "download_file", "track_file"}
 
     no_files_nudge = (
         "No files were modified in the previous attempt. The agent spent all iterations"

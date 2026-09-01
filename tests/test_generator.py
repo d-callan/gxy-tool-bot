@@ -6,7 +6,7 @@ import gzip
 from pathlib import Path
 
 from gxy_tool_bot.generator import GeneratedFile, FileWriter, _build_tool_definitions, _derive_tool_owner
-from gxy_tool_bot.validation import ValidationResult, validate_generated_files
+from gxy_tool_bot.validation import ValidationResult, validate_generated_files, _detect_strays
 
 
 def test_derive_tool_owner() -> None:
@@ -295,6 +295,51 @@ def test_compress_file_path_traversal(tmp_path: Path) -> None:
     result = fw.compress_file({"path": "../../etc/passwd"})
     assert "Error" in result
     assert "outside" in result
+
+
+def test_track_file_binary(tmp_path: Path) -> None:
+    """track_file should read a binary file from disk and track it as-is."""
+    fw = FileWriter(tmp_path)
+    binary_content = b"\x89HDF\r\n\x1a\n" + bytes(range(256))  # HDF5-like binary
+    (tmp_path / "test-data" / "lookup.h5").parent.mkdir(parents=True)
+    (tmp_path / "test-data" / "lookup.h5").write_bytes(binary_content)
+    result = fw.track_file({"path": "test-data/lookup.h5"})
+    assert "Tracked" in result
+    assert "test-data/lookup.h5" in fw.files
+    assert fw.files["test-data/lookup.h5"] == binary_content
+
+
+def test_track_file_text(tmp_path: Path) -> None:
+    """track_file should also work for text files."""
+    fw = FileWriter(tmp_path)
+    (tmp_path / "output.txt").write_text("hello world")
+    result = fw.track_file({"path": "output.txt"})
+    assert "Tracked" in result
+    assert fw.files["output.txt"] == b"hello world"
+
+
+def test_track_file_missing(tmp_path: Path) -> None:
+    """track_file should error when file doesn't exist."""
+    fw = FileWriter(tmp_path)
+    result = fw.track_file({"path": "nonexistent.h5"})
+    assert "Error" in result
+    assert "does not exist" in result
+
+
+def test_track_file_empty_path(tmp_path: Path) -> None:
+    """track_file should error on empty path."""
+    fw = FileWriter(tmp_path)
+    result = fw.track_file({"path": ""})
+    assert "Error" in result
+    assert "path is required" in result
+
+
+def test_track_file_path_traversal(tmp_path: Path) -> None:
+    """track_file should reject paths outside output dir."""
+    fw = FileWriter(tmp_path)
+    result = fw.track_file({"path": "../../etc/passwd"})
+    assert "Error" in result
+    assert "within the tool directory" in result
 
 
 def test_validation_missing_detect_errors() -> None:
@@ -1688,6 +1733,10 @@ def test_run_in_conda_tool_added_when_installed(tmp_path: Path) -> None:
     assert "run_in_conda" in tool_names
     conda_tool = next(t for t in tools if t.name == "run_in_conda")
     assert conda_tool.timeout == 360
+    # track_file should also be available alongside run_in_conda
+    assert "track_file" in tool_names
+    track_tool = next(t for t in tools if t.name == "track_file")
+    assert track_tool.timeout == 30
 
 
 def test_run_in_conda_does_not_auto_clean_stray_files(tmp_path: Path) -> None:
@@ -1821,3 +1870,68 @@ def test_add_agent_notes_tool_added_when_enabled(tmp_path: Path) -> None:
     fw = FileWriter(tmp_path)
     tools = _build_tool_definitions(fw, config)
     assert "add_agent_notes" in [t.name for t in tools]
+
+
+def test_detect_strays_finds_untracked_files(tmp_path: Path) -> None:
+    """_detect_strays should find files on disk not in file_writer.files."""
+    fw = FileWriter(tmp_path)
+    fw.write_file({"path": "macros.xml", "content": "<macros/>"})
+    fw.write_file({"path": "test-data/sample.txt", "content": "hello"})
+
+    # Create a stray file on disk (not tracked by file_writer)
+    (tmp_path / "stray.log").write_text("oops")
+    (tmp_path / "test-data").mkdir(exist_ok=True)
+    (tmp_path / "test-data" / "stray.out").write_text("output")
+
+    strays = _detect_strays(fw)
+    assert "stray.log" in strays
+    assert "test-data/stray.out" in strays
+    assert "macros.xml" not in strays
+    assert "test-data/sample.txt" not in strays
+
+
+def test_detect_strays_excludes_metadata_files(tmp_path: Path) -> None:
+    """_detect_strays should exclude .tool-name and .agent-notes."""
+    fw = FileWriter(tmp_path)
+    fw.write_file({"path": "tool.xml", "content": "<tool/>"})
+
+    (tmp_path / ".tool-name").write_text("mytool")
+    (tmp_path / ".agent-notes").write_text("# Agent Notes")
+
+    strays = _detect_strays(fw)
+    assert strays == []
+
+
+def test_detect_strays_works_in_feedback_mode(tmp_path: Path) -> None:
+    """_detect_strays should work the same in feedback mode — no pre-existing snapshot logic."""
+    fw = FileWriter(tmp_path, mode="feedback")
+    fw.write_file({"path": "tool.xml", "content": "<tool/>"})
+
+    # A pre-existing file not tracked by file_writer
+    (tmp_path / "pre-existing.dat").write_text("data")
+
+    strays = _detect_strays(fw)
+    assert "pre-existing.dat" in strays
+
+
+def test_fold_strays_fails_validation() -> None:
+    """_fold_strays should mark validation invalid when strays exist, listing each one."""
+    from gxy_tool_bot.validation import _fold_strays
+
+    valid = ValidationResult(valid=True, errors=[])
+    folded = _fold_strays(valid, ["stray.log", "test-data/stray.out"])
+    assert folded.valid is False
+    assert any("stray.log" in e for e in folded.errors)
+    assert any("stray.out" in e for e in folded.errors)
+    assert any("track_file" in e for e in folded.errors)
+
+
+def test_fold_strays_noop_when_no_strays() -> None:
+    """_fold_strays should return validation unchanged when there are no strays."""
+    from gxy_tool_bot.validation import _fold_strays
+
+    valid = ValidationResult(valid=True, errors=[])
+    assert _fold_strays(valid, []) is valid
+
+    invalid = ValidationResult(valid=False, errors=["some other error"])
+    assert _fold_strays(invalid, []) is invalid

@@ -13,8 +13,8 @@ def read_tool_files(tool_dir: Path) -> dict[str, str]:
 
     Skips internal files like ``.tool-name``. Other dotfiles such as
     ``.agent-notes`` are included — the review flow uses them to understand
-    the writer's rationale. Binary files are decoded with errors replaced so
-    they don't crash the caller.
+    the writer's rationale. Binary files are skipped (listed as a placeholder)
+    so the bot knows they exist without getting corrupted text in its context.
 
     Used by both the feedback flow (``_collect_feedback``) and the review flow
     (``collect_review_context``) to gather existing tool files.
@@ -31,5 +31,7 @@ def read_tool_files(tool_dir: Path) -> dict[str, str]:
             try:
                 files[str(rel)] = f.read_text(encoding="utf-8")
             except (UnicodeDecodeError, OSError):
-                files[str(rel)] = f.read_bytes().decode("utf-8", errors="replace")
+                # Binary file — include a placeholder so the bot knows it exists
+                # but doesn't try to read/write it as text.
+                files[str(rel)] = f"[binary file — {f.stat().st_size} bytes — use track_file to include in PR]"
     return files
