@@ -143,6 +143,21 @@ The documentation is not published yet.
     assert "The documentation is not published yet." in request.description
 
 
+def test_parse_issue_body_label_lines_inside_form_values_ignored() -> None:
+    """`Label:`-looking lines inside a form field's value are not legacy fields."""
+    body = """
+Tool name: fastp
+
+### Description
+
+Tried Tool name: cutadapt but it failed.
+Contact: bob mentioned in passing.
+"""
+    request = parse_issue_body(body)
+    assert request.tool_name == "fastp"
+    assert request.contact is None
+
+
 def test_find_plan_comment() -> None:
     from gxy_tool_bot.github_client import Comment
 

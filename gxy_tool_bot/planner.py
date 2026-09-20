@@ -381,17 +381,21 @@ _ISSUE_FORM_HEADING_RE = re.compile(r"^###\s+(.+?)\s*$", re.MULTILINE)
 _ISSUE_FORM_LABELS = {"tool name", "description", "links", "contact"}
 
 
-def _parse_issue_form_fields(body: str) -> dict[str, str]:
+def _find_issue_form_boundaries(body: str) -> list[re.Match]:
+    """Positions of recognized `### Label` field headings in the body."""
+    return [
+        m for m in _ISSUE_FORM_HEADING_RE.finditer(body)
+        if m.group(1).strip().lower() in _ISSUE_FORM_LABELS
+    ]
+
+
+def _parse_issue_form_fields(body: str, boundaries: list[re.Match]) -> dict[str, str]:
     """Parse `### Label` sections from a GitHub issue-form body.
 
     Issue forms render each field as a `### Label` heading followed by the
     value, and empty optional fields as `_No response._`. Returns a map of
     lowercased label -> value text; empty responses map to "".
     """
-    boundaries = [
-        m for m in _ISSUE_FORM_HEADING_RE.finditer(body)
-        if m.group(1).strip().lower() in _ISSUE_FORM_LABELS
-    ]
     fields: dict[str, str] = {}
     for i, match in enumerate(boundaries):
         label = match.group(1).strip().lower()
@@ -413,7 +417,12 @@ def parse_issue_body(body: str) -> ToolRequest:
     description = ""
     contact = None
 
-    for line in body.strip().split("\n"):
+    boundaries = _find_issue_form_boundaries(body)
+    # Everything from the first recognized field heading onward is consumed as
+    # form-field values, so legacy `Label:` lines only count in the preamble —
+    # a field's value may itself contain label-like lines.
+    legacy_text = body[: boundaries[0].start()] if boundaries else body
+    for line in legacy_text.strip().split("\n"):
         line = line.strip()
         if line.lower().startswith("tool name:"):
             tool_name = line.split(":", 1)[1].strip()
@@ -422,7 +431,7 @@ def parse_issue_body(body: str) -> ToolRequest:
         elif line.lower().startswith("contact:"):
             contact = line.split(":", 1)[1].strip() or None
 
-    form_fields = _parse_issue_form_fields(body)
+    form_fields = _parse_issue_form_fields(body, boundaries)
     if "tool name" in form_fields:
         tool_name = form_fields["tool name"]
     if "description" in form_fields:
