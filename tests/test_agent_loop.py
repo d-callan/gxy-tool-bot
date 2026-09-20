@@ -10,6 +10,7 @@ from gxy_tool_bot.agent_loop import (
     ToolDefinition,
     _compute_context_size,
     _prune_previous_writes,
+    _run_tool_with_timeout,
     run_agent_loop,
 )
 from gxy_tool_bot.api_client import ChatResponse, ToolCall
@@ -118,6 +119,28 @@ def test_agent_loop_max_iterations_warning() -> None:
     assert result.terminated_naturally is False
     assert "did not naturally terminate" in result.content
     assert result.iterations == 3
+
+
+def test_run_tool_with_timeout_returns_result() -> None:
+    result = _run_tool_with_timeout(lambda args: "ok", {}, timeout=5)
+    assert result == "ok"
+
+
+def test_run_tool_with_timeout_returns_without_waiting() -> None:
+    """A timed-out call returns the error promptly rather than waiting for the handler."""
+    import time
+
+    def slow(args: dict) -> str:
+        time.sleep(10)
+        return "done"
+
+    start = time.monotonic()
+    result = _run_tool_with_timeout(slow, {}, timeout=1)
+    elapsed = time.monotonic() - start
+    assert "timed out" in result
+    # The old implementation waited for the handler on executor shutdown — this
+    # would take ~10s if the timeout didn't actually bound the call.
+    assert elapsed < 5
 
 
 def test_agent_loop_tool_error_handled() -> None:
