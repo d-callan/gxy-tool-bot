@@ -3,9 +3,22 @@
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+# Environment variables whose names end in these suffixes are not passed to
+# subprocesses spawned by tool calls.
+_SECRET_ENV_SUFFIXES = ("_TOKEN", "_KEY", "_SECRET", "_PASSWORD", "_CREDENTIALS")
+
+
+def sanitized_env() -> dict[str, str]:
+    """Copy of the process environment minus credential-looking variables."""
+    return {
+        k: v for k, v in os.environ.items()
+        if not k.upper().endswith(_SECRET_ENV_SUFFIXES)
+    }
 
 
 def read_tool_files(tool_dir: Path) -> dict[str, str]:

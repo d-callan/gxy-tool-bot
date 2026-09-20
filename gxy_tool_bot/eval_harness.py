@@ -36,6 +36,7 @@ from gxy_tool_bot.generator import (
     _load_template,
     generate_tool,
 )
+from gxy_tool_bot.utils import sanitized_env
 from gxy_tool_bot.validation import run_agent_with_validation, validate_generated_files
 
 logger = logging.getLogger(__name__)
@@ -285,6 +286,7 @@ def _run_planemo_lint(target_dir: Path) -> bool | None:
         result = subprocess.run(
             ["planemo", "lint", str(target_dir)],
             capture_output=True, text=True, timeout=180,
+            env=sanitized_env(),
         )
         return result.returncode == 0
     except (subprocess.TimeoutExpired, FileNotFoundError):
@@ -299,6 +301,7 @@ def _run_planemo_test(target_dir: Path) -> bool | None:
         result = subprocess.run(
             ["planemo", "test", str(target_dir)],
             capture_output=True, text=True, timeout=600,
+            env=sanitized_env(),
         )
         return result.returncode == 0
     except (subprocess.TimeoutExpired, FileNotFoundError):

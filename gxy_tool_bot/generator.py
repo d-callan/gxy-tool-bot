@@ -24,6 +24,7 @@ from gxy_tool_bot.lookups.github import search_github
 from gxy_tool_bot.lookups.toolshed import fetch_toolshed_categories
 from gxy_tool_bot.lookups.web import search_web
 from gxy_tool_bot.planemo_utils import summarize_test_json
+from gxy_tool_bot.utils import sanitized_env
 
 logger = logging.getLogger(__name__)
 
@@ -270,6 +271,7 @@ class FileWriter:
             result = subprocess.run(
                 ["planemo", "lint", str(target)],
                 capture_output=True, text=True, timeout=120,
+                env=sanitized_env(),
             )
             output = result.stdout + result.stderr
             if len(output) > 10000:
@@ -302,6 +304,7 @@ class FileWriter:
             result = subprocess.run(
                 ["planemo", "test", "--test_output_json", json_path, str(target)],
                 capture_output=True, text=True, timeout=300,
+                env=sanitized_env(),
             )
             try:
                 with open(json_path) as f:
@@ -411,6 +414,7 @@ class FileWriter:
             try:
                 result = subprocess.run(
                     create_cmd, capture_output=True, text=True, timeout=300,
+                    env=sanitized_env(),
                 )
                 if result.returncode != 0:
                     err = (result.stderr + result.stdout)[-2000:]
@@ -425,7 +429,7 @@ class FileWriter:
         # Any files the command creates (e.g. output samples, logs) will remain
         # on disk — the bot must clean them up with delete_file after inspecting
         # them. The validation loop checks for stray files as a safety net.
-        env = os.environ.copy()
+        env = sanitized_env()
         env["PATH"] = str(env_path / "bin") + os.pathsep + env.get("PATH", "")
 
         try:

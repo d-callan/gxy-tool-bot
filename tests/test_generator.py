@@ -5,8 +5,24 @@ from __future__ import annotations
 import gzip
 from pathlib import Path
 
+import pytest
+
 from gxy_tool_bot.generator import GeneratedFile, FileWriter, _build_tool_definitions, _derive_tool_owner
+from gxy_tool_bot.utils import sanitized_env
 from gxy_tool_bot.validation import ValidationResult, validate_generated_files, _detect_strays
+
+
+def test_sanitized_env_drops_credential_vars(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GH_TOKEN", "ghp_test")
+    monkeypatch.setenv("GXY_TOOL_BOT_API_KEY", "sk-test")
+    monkeypatch.setenv("MYDB_PASSWORD", "pw")
+    monkeypatch.setenv("KEEP_ME", "value")
+    env = sanitized_env()
+    assert "GH_TOKEN" not in env
+    assert "GXY_TOOL_BOT_API_KEY" not in env
+    assert "MYDB_PASSWORD" not in env
+    assert env["KEEP_ME"] == "value"
+    assert "PATH" in env
 
 
 def test_derive_tool_owner() -> None:
