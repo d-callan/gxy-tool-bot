@@ -40,7 +40,7 @@ from gxy_tool_bot.lookups.biotools import search_bio_tools
 from gxy_tool_bot.lookups.github import search_github
 from gxy_tool_bot.lookups.toolshed import fetch_toolshed_categories
 from gxy_tool_bot.lookups.web import search_web
-from gxy_tool_bot.utils import read_tool_files
+from gxy_tool_bot.utils import is_report_artifact, read_tool_files
 from gxy_tool_bot.validation import ValidationResult, run_agent_with_validation
 
 logger = logging.getLogger(__name__)
@@ -130,7 +130,7 @@ def collect_review_context(
 
             for artifact in artifacts:
                 name = artifact["name"]
-                if not any(kw in name.lower() for kw in ("lint", "test", "python", "r lint", "file size")):
+                if not is_report_artifact(name):
                     continue
                 if has_combined and name.startswith("Tool test output "):
                     continue

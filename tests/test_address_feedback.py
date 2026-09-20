@@ -264,6 +264,32 @@ def test_collect_feedback_filters_resolved_comments(tmp_path) -> None:
     assert 103 not in comment_ids
 
 
+def test_collect_feedback_skips_non_report_artifacts(tmp_path) -> None:
+    """Artifacts that aren't CI reports must not be downloaded — e.g.
+    'gitignored-test-data' is a binary zip that matched the old 'test' keyword."""
+    from unittest.mock import MagicMock
+
+    gh = MagicMock()
+    gh.get_pr_comments.return_value = []
+    gh.get_pr_review_comments.return_value = []
+    gh.get_resolved_review_comment_ids.return_value = set()
+    gh.get_pr_check_runs.return_value = []
+    gh.get_pr_artifacts.return_value = [
+        {"name": "gitignored-test-data", "id": 1},
+        {"name": "some-random-bundle", "id": 2},
+        {"name": "Tool linting output", "id": 3},
+        {"name": "Tool test output 1", "id": 4},
+    ]
+    gh.download_artifact.return_value = {"report.txt": b"lint warnings here"}
+
+    ctx = _collect_feedback(gh, 1, tmp_path)
+
+    downloaded_ids = {c.args[0] for c in gh.download_artifact.call_args_list}
+    assert downloaded_ids == {3, 4}
+    assert any("Tool linting output" in k for k in ctx.ci_artifacts)
+    assert not any("gitignored" in k for k in ctx.ci_artifacts)
+
+
 def test_collect_feedback_includes_all_on_graphql_failure(tmp_path) -> None:
     """_collect_feedback should include all comments if GraphQL call fails."""
     from unittest.mock import MagicMock
