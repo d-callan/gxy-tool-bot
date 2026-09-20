@@ -29,6 +29,13 @@ def test_sanitized_env_drops_credential_vars(monkeypatch: pytest.MonkeyPatch) ->
     assert "PATH" in env
 
 
+def test_sanitized_env_drops_configured_api_key_name(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A configured api key env var is dropped even without a credential marker."""
+    monkeypatch.setenv("MY_LLM_CREDS", "sk-test")
+    env = sanitized_env(extra_names={"MY_LLM_CREDS"})
+    assert "MY_LLM_CREDS" not in env
+
+
 def test_derive_tool_owner() -> None:
     assert _derive_tool_owner("galaxyproject/tools-iuc") == "iuc"
     assert _derive_tool_owner("bgruening/galaxytools") == "bgruening"

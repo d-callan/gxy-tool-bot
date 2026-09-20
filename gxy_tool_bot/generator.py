@@ -46,12 +46,18 @@ class GeneratedTool:
 class FileWriter:
     """Handles write_file tool calls, collecting files into a dict."""
 
-    def __init__(self, output_dir: Path, mode: str = "generate"):
+    def __init__(
+        self, output_dir: Path, mode: str = "generate",
+        env_scrub_names: set[str] | None = None,
+    ):
         self.output_dir = output_dir
         self.mode = mode
         self.files: dict[str, bytes] = {}
         self.tool_dir: str | None = None
         self.give_up_reason: str | None = None
+        # Additional env var names never passed to tool-spawned subprocesses
+        # (e.g. the configured LLM API key env var).
+        self.env_scrub_names = env_scrub_names or set()
 
     def give_up(self, args: dict) -> str:
         reason = args.get("reason", "")
@@ -271,7 +277,7 @@ class FileWriter:
             result = subprocess.run(
                 ["planemo", "lint", str(target)],
                 capture_output=True, text=True, timeout=120,
-                env=sanitized_env(),
+                env=sanitized_env(self.env_scrub_names),
             )
             output = result.stdout + result.stderr
             if len(output) > 10000:
@@ -304,7 +310,7 @@ class FileWriter:
             result = subprocess.run(
                 ["planemo", "test", "--test_output_json", json_path, str(target)],
                 capture_output=True, text=True, timeout=300,
-                env=sanitized_env(),
+                env=sanitized_env(self.env_scrub_names),
             )
             try:
                 with open(json_path) as f:
@@ -414,7 +420,7 @@ class FileWriter:
             try:
                 result = subprocess.run(
                     create_cmd, capture_output=True, text=True, timeout=300,
-                    env=sanitized_env(),
+                    env=sanitized_env(self.env_scrub_names),
                 )
                 if result.returncode != 0:
                     err = (result.stderr + result.stdout)[-2000:]
@@ -429,7 +435,7 @@ class FileWriter:
         # Any files the command creates (e.g. output samples, logs) will remain
         # on disk — the bot must clean them up with delete_file after inspecting
         # them. The validation loop checks for stray files as a safety net.
-        env = sanitized_env()
+        env = sanitized_env(self.env_scrub_names)
         env["PATH"] = str(env_path / "bin") + os.pathsep + env.get("PATH", "")
 
         try:
@@ -958,7 +964,7 @@ def generate_tool(
         )
 
     # Set up file writer and tools
-    file_writer = FileWriter(output_dir)
+    file_writer = FileWriter(output_dir, env_scrub_names={config.api.api_key_env})
     tools = _build_tool_definitions(file_writer, config)
 
     no_files_nudge = (

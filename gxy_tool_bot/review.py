@@ -509,7 +509,7 @@ def run_review(
 
     # FileWriter is used only for read_file/planemo handlers — never for writing.
     # We set mode="review" to signal it's a review context (no write tools offered).
-    file_writer = FileWriter(tool_dir, mode="review")
+    file_writer = FileWriter(tool_dir, mode="review", env_scrub_names={config.api.api_key_env})
     tools = _build_review_tool_definitions(file_writer)
 
     with ApiClient(

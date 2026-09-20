@@ -27,11 +27,17 @@ def _is_sensitive_env_name(name: str) -> bool:
     )
 
 
-def sanitized_env() -> dict[str, str]:
-    """Copy of the process environment minus credential-looking variables."""
+def sanitized_env(extra_names: set[str] | None = None) -> dict[str, str]:
+    """Copy of the process environment minus credential-looking variables.
+
+    ``extra_names`` are additional variable names to drop unconditionally —
+    e.g. the configured LLM API key env var, whose name need not contain a
+    credential marker.
+    """
+    extra = {n.upper() for n in (extra_names or ())}
     return {
         k: v for k, v in os.environ.items()
-        if not _is_sensitive_env_name(k)
+        if not _is_sensitive_env_name(k) and k.upper() not in extra
     }
 
 
