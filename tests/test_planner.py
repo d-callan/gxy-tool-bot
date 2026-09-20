@@ -106,6 +106,43 @@ Takes alignments and trees.
     assert "### Input details" in request.description
 
 
+def test_parse_issue_body_mixed_formats() -> None:
+    """Issue-form fields override legacy fields without hiding other legacy fields."""
+    body = """
+Tool name: fastp
+Contact: @d-callan
+
+### Description
+
+FASTQ preprocessor.
+"""
+    request = parse_issue_body(body)
+    assert request.tool_name == "fastp"
+    assert request.description == "FASTQ preprocessor."
+    assert request.contact == "@d-callan"
+
+
+def test_parse_issue_body_non_h3_field_heading() -> None:
+    """Non-H3 field-like headings inside descriptions are preserved."""
+    body = """
+### Tool name
+
+hyphy
+
+### Description
+
+Hypothesis testing framework.
+
+## Links
+
+The documentation is not published yet.
+"""
+    request = parse_issue_body(body)
+    assert request.tool_name == "hyphy"
+    assert "## Links" in request.description
+    assert "The documentation is not published yet." in request.description
+
+
 def test_find_plan_comment() -> None:
     from gxy_tool_bot.github_client import Comment
 

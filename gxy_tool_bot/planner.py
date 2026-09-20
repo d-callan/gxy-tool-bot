@@ -374,7 +374,7 @@ def generate_plan(
 
 _NO_RESPONSE_RE = re.compile(r"(?i)_?no response\.?_?")
 
-_ISSUE_FORM_HEADING_RE = re.compile(r"^#{1,6}\s+(.+?)\s*$", re.MULTILINE)
+_ISSUE_FORM_HEADING_RE = re.compile(r"^###\s+(.+?)\s*$", re.MULTILINE)
 
 # Field labels used by the issue form; other `###` headings (e.g. markdown a
 # user pasted into the Description textarea) must not act as field boundaries.
@@ -413,20 +413,22 @@ def parse_issue_body(body: str) -> ToolRequest:
     description = ""
     contact = None
 
+    for line in body.strip().split("\n"):
+        line = line.strip()
+        if line.lower().startswith("tool name:"):
+            tool_name = line.split(":", 1)[1].strip()
+        elif line.lower().startswith("description:"):
+            description = line.split(":", 1)[1].strip()
+        elif line.lower().startswith("contact:"):
+            contact = line.split(":", 1)[1].strip() or None
+
     form_fields = _parse_issue_form_fields(body)
-    if form_fields:
-        tool_name = form_fields.get("tool name", "")
-        description = form_fields.get("description", "")
-        contact = form_fields.get("contact") or None
-    else:
-        for line in body.strip().split("\n"):
-            line = line.strip()
-            if line.lower().startswith("tool name:"):
-                tool_name = line.split(":", 1)[1].strip()
-            elif line.lower().startswith("description:"):
-                description = line.split(":", 1)[1].strip()
-            elif line.lower().startswith("contact:"):
-                contact = line.split(":", 1)[1].strip() or None
+    if "tool name" in form_fields:
+        tool_name = form_fields["tool name"]
+    if "description" in form_fields:
+        description = form_fields["description"]
+    if "contact" in form_fields:
+        contact = form_fields["contact"] or None
 
     # Extract all URLs from the body via regex — robust against any formatting
     links = re.findall(r'https?://[^\s<>"\')]+', body)
