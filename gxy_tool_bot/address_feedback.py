@@ -243,6 +243,18 @@ def _build_feedback_user_prompt(ctx: FeedbackContext) -> str:
     return "\n".join(parts)
 
 
+def _load_existing_files(file_writer: FileWriter, tool_dir: Path, existing_files: dict[str, str]) -> None:
+    """Populate file_writer's tracked files with the real on-disk bytes.
+
+    ``existing_files`` holds display content — binary files appear as
+    placeholder strings, so tracked bytes always come from disk and nothing
+    is written back (the files are already on disk in the checked-out PR
+    branch).
+    """
+    for path in existing_files:
+        file_writer.files[path] = (tool_dir / path).read_bytes()
+
+
 def address_feedback(
     pr_number: int,
     config: BotConfig,
@@ -279,12 +291,7 @@ def address_feedback(
 
     # Load existing files into FileWriter so they're tracked
     file_writer = FileWriter(tool_dir, mode="feedback", env_scrub_names={config.api.api_key_env})
-    for path, content in ctx.existing_files.items():
-        file_writer.files[path] = content.encode("utf-8")
-        # Also write to disk so the agent can see them
-        dest = tool_dir / path
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_text(content, encoding="utf-8")
+    _load_existing_files(file_writer, tool_dir, ctx.existing_files)
 
     tools = _build_tool_definitions(file_writer, config)
 
