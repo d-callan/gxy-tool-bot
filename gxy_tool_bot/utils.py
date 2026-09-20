@@ -8,16 +8,30 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# Environment variables whose names end in these suffixes are not passed to
-# subprocesses spawned by tool calls.
-_SECRET_ENV_SUFFIXES = ("_TOKEN", "_KEY", "_SECRET", "_PASSWORD", "_CREDENTIALS")
+# Environment variables whose names contain these markers or end in these
+# suffixes are treated as credentials and not passed to subprocesses spawned
+# by tool calls. Substring markers cover names like AWS_ACCESS_KEY_ID and
+# DOCKER_AUTH_CONFIG that don't share a common suffix.
+_SECRET_ENV_MARKERS = (
+    "TOKEN", "KEY", "SECRET", "PASSWORD", "PASSWD",
+    "CREDENTIAL", "AUTH", "DSN",
+)
+_SECRET_ENV_SUFFIXES = ("_URL",)
+
+
+def _is_sensitive_env_name(name: str) -> bool:
+    upper = name.upper()
+    return (
+        any(marker in upper for marker in _SECRET_ENV_MARKERS)
+        or upper.endswith(_SECRET_ENV_SUFFIXES)
+    )
 
 
 def sanitized_env() -> dict[str, str]:
     """Copy of the process environment minus credential-looking variables."""
     return {
         k: v for k, v in os.environ.items()
-        if not k.upper().endswith(_SECRET_ENV_SUFFIXES)
+        if not _is_sensitive_env_name(k)
     }
 
 

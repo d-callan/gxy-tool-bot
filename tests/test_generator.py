@@ -13,14 +13,18 @@ from gxy_tool_bot.validation import ValidationResult, validate_generated_files, 
 
 
 def test_sanitized_env_drops_credential_vars(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("GH_TOKEN", "ghp_test")
-    monkeypatch.setenv("GXY_TOOL_BOT_API_KEY", "sk-test")
-    monkeypatch.setenv("MYDB_PASSWORD", "pw")
+    for name in (
+        "GH_TOKEN", "GXY_TOOL_BOT_API_KEY", "MYDB_PASSWORD",
+        "AWS_ACCESS_KEY_ID", "DATABASE_URL", "DOCKER_AUTH_CONFIG",
+    ):
+        monkeypatch.setenv(name, "secret")
     monkeypatch.setenv("KEEP_ME", "value")
     env = sanitized_env()
-    assert "GH_TOKEN" not in env
-    assert "GXY_TOOL_BOT_API_KEY" not in env
-    assert "MYDB_PASSWORD" not in env
+    for name in (
+        "GH_TOKEN", "GXY_TOOL_BOT_API_KEY", "MYDB_PASSWORD",
+        "AWS_ACCESS_KEY_ID", "DATABASE_URL", "DOCKER_AUTH_CONFIG",
+    ):
+        assert name not in env
     assert env["KEEP_ME"] == "value"
     assert "PATH" in env
 
