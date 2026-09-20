@@ -448,3 +448,29 @@ def test_build_review_prompt_mentions_agent_notes() -> None:
     )
     system, user = build_review_prompt(ctx)
     assert ".agent-notes" in user
+
+
+def test_collect_review_context_skips_non_report_artifacts(tmp_path: Path) -> None:
+    """Standalone review should skip binary bundles like 'gitignored-test-data'."""
+    from gxy_tool_bot.config import ApiConfig, BotConfig
+    from gxy_tool_bot.review import collect_review_context
+
+    config = BotConfig(
+        api=ApiConfig(base_url="https://example.com", model="m"),
+        exemplars=[],
+        repo="o/r",
+    )
+    gh = MagicMock()
+    gh.get_pr_check_runs.return_value = []
+    gh.get_pr_artifacts.return_value = [
+        {"name": "gitignored-test-data", "id": 1},
+        {"name": "Tool linting output", "id": 2},
+    ]
+    gh.download_artifact.return_value = {"report.txt": b"lint warnings here"}
+    gh.get_pr.return_value = {"body": ""}
+
+    ctx = collect_review_context(tmp_path, config, gh=gh, pr_number=1)
+
+    downloaded_ids = {c.args[0] for c in gh.download_artifact.call_args_list}
+    assert downloaded_ids == {2}
+    assert any("Tool linting output" in k for k in ctx.ci_artifacts)
