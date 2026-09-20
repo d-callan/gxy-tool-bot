@@ -3,9 +3,39 @@
 from __future__ import annotations
 
 import logging
+import os
+import re
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+# Environment variables are treated as credentials when any
+# underscore/dash-delimited name component matches a marker — this catches
+# AWS_ACCESS_KEY_ID and DOCKER_AUTH_CONFIG while leaving ordinary config vars
+# like GITHUB_SERVER_URL, PIP_INDEX_URL, and PYTHON_KEYRING_BACKEND alone.
+_SECRET_ENV_COMPONENTS = {
+    "TOKEN", "KEY", "APIKEY", "SECRET", "PASSWORD", "PASSWD",
+    "CREDENTIAL", "CREDENTIALS", "AUTH", "DSN",
+}
+
+
+def _is_sensitive_env_name(name: str) -> bool:
+    components = re.split(r"[_\-.]+", name.upper())
+    return any(part in _SECRET_ENV_COMPONENTS for part in components)
+
+
+def sanitized_env(extra_names: set[str] | None = None) -> dict[str, str]:
+    """Copy of the process environment minus credential-looking variables.
+
+    ``extra_names`` are additional variable names to drop unconditionally —
+    e.g. the configured LLM API key env var, whose name need not contain a
+    credential marker.
+    """
+    extra = {n.upper() for n in (extra_names or ())}
+    return {
+        k: v for k, v in os.environ.items()
+        if not _is_sensitive_env_name(k) and k.upper() not in extra
+    }
 
 
 def read_tool_files(tool_dir: Path) -> dict[str, str]:

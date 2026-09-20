@@ -278,7 +278,7 @@ def address_feedback(
         )
 
     # Load existing files into FileWriter so they're tracked
-    file_writer = FileWriter(tool_dir, mode="feedback")
+    file_writer = FileWriter(tool_dir, mode="feedback", env_scrub_names={config.api.api_key_env})
     for path, content in ctx.existing_files.items():
         file_writer.files[path] = content.encode("utf-8")
         # Also write to disk so the agent can see them

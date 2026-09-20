@@ -5,8 +5,48 @@ from __future__ import annotations
 import gzip
 from pathlib import Path
 
+import pytest
+
 from gxy_tool_bot.generator import GeneratedFile, FileWriter, _build_tool_definitions, _derive_tool_owner
+from gxy_tool_bot.utils import sanitized_env
 from gxy_tool_bot.validation import ValidationResult, validate_generated_files, _detect_strays
+
+
+def test_sanitized_env_drops_credential_vars(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in (
+        "GH_TOKEN", "GXY_TOOL_BOT_API_KEY", "MYDB_PASSWORD",
+        "AWS_ACCESS_KEY_ID", "DOCKER_AUTH_CONFIG", "OPENAI_APIKEY",
+    ):
+        monkeypatch.setenv(name, "secret")
+    env = sanitized_env()
+    for name in (
+        "GH_TOKEN", "GXY_TOOL_BOT_API_KEY", "MYDB_PASSWORD",
+        "AWS_ACCESS_KEY_ID", "DOCKER_AUTH_CONFIG", "OPENAI_APIKEY",
+    ):
+        assert name not in env
+    assert "PATH" in env
+
+
+def test_sanitized_env_keeps_plain_config_vars(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Non-credential config vars containing marker-like substrings survive."""
+    for name in (
+        "GITHUB_SERVER_URL", "PIP_INDEX_URL", "PYTHON_KEYRING_BACKEND",
+        "GIT_AUTHOR_NAME", "KEEP_ME", "DATABASE_URL",
+    ):
+        monkeypatch.setenv(name, "value")
+    env = sanitized_env()
+    for name in (
+        "GITHUB_SERVER_URL", "PIP_INDEX_URL", "PYTHON_KEYRING_BACKEND",
+        "GIT_AUTHOR_NAME", "KEEP_ME", "DATABASE_URL",
+    ):
+        assert env[name] == "value"
+
+
+def test_sanitized_env_drops_configured_api_key_name(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A configured api key env var is dropped even without a credential marker."""
+    monkeypatch.setenv("MY_LLM_CREDS", "sk-test")
+    env = sanitized_env(extra_names={"MY_LLM_CREDS"})
+    assert "MY_LLM_CREDS" not in env
 
 
 def test_derive_tool_owner() -> None:

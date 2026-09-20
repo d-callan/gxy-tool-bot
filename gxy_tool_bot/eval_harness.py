@@ -36,6 +36,7 @@ from gxy_tool_bot.generator import (
     _load_template,
     generate_tool,
 )
+from gxy_tool_bot.utils import sanitized_env
 from gxy_tool_bot.validation import run_agent_with_validation, validate_generated_files
 
 logger = logging.getLogger(__name__)
@@ -277,7 +278,7 @@ def run_assertions(assertions: list[dict], files: dict[str, bytes]) -> tuple[boo
 # Planemo runner
 # ---------------------------------------------------------------------------
 
-def _run_planemo_lint(target_dir: Path) -> bool | None:
+def _run_planemo_lint(target_dir: Path, env_scrub_names: set[str] | None = None) -> bool | None:
     """Run planemo lint on a directory. Returns True/False, or None if planemo not installed."""
     if not shutil.which("planemo"):
         return None
@@ -285,13 +286,14 @@ def _run_planemo_lint(target_dir: Path) -> bool | None:
         result = subprocess.run(
             ["planemo", "lint", str(target_dir)],
             capture_output=True, text=True, timeout=180,
+            env=sanitized_env(env_scrub_names),
         )
         return result.returncode == 0
     except (subprocess.TimeoutExpired, FileNotFoundError):
         return None
 
 
-def _run_planemo_test(target_dir: Path) -> bool | None:
+def _run_planemo_test(target_dir: Path, env_scrub_names: set[str] | None = None) -> bool | None:
     """Run planemo test on a directory. Returns True/False, or None if planemo not installed."""
     if not shutil.which("planemo"):
         return None
@@ -299,6 +301,7 @@ def _run_planemo_test(target_dir: Path) -> bool | None:
         result = subprocess.run(
             ["planemo", "test", str(target_dir)],
             capture_output=True, text=True, timeout=600,
+            env=sanitized_env(env_scrub_names),
         )
         return result.returncode == 0
     except (subprocess.TimeoutExpired, FileNotFoundError):
@@ -352,8 +355,8 @@ def run_generate_case(
     planemo_lint = None
     planemo_test = None
     if run_planemo and not generated.give_up_reason:
-        planemo_lint = _run_planemo_lint(output_dir)
-        planemo_test = _run_planemo_test(output_dir)
+        planemo_lint = _run_planemo_lint(output_dir, {config.api.api_key_env})
+        planemo_test = _run_planemo_test(output_dir, {config.api.api_key_env})
 
     # Overall pass: validation passed, assertions passed, didn't give up.
     # Planemo is informational (may not be installed) — not required for "passed".
@@ -455,7 +458,7 @@ def run_feedback_case(
         )
 
     # Set up file writer with existing files loaded
-    file_writer = FileWriter(tool_dir, mode="feedback")
+    file_writer = FileWriter(tool_dir, mode="feedback", env_scrub_names={config.api.api_key_env})
     for path, content in existing_files.items():
         file_writer.files[path] = content.encode("utf-8")
 
@@ -506,8 +509,8 @@ def run_feedback_case(
     planemo_lint = None
     planemo_test = None
     if run_planemo and not file_writer.give_up_reason:
-        planemo_lint = _run_planemo_lint(tool_dir)
-        planemo_test = _run_planemo_test(tool_dir)
+        planemo_lint = _run_planemo_lint(tool_dir, {config.api.api_key_env})
+        planemo_test = _run_planemo_test(tool_dir, {config.api.api_key_env})
 
     gave_up = file_writer.give_up_reason is not None
     passed = validation.valid and assertions_passed and not gave_up
