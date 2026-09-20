@@ -110,10 +110,18 @@ def validate_generated_files(files: list[GeneratedFile]) -> ValidationResult:
                     if not fname:
                         continue
                     # Check if it looks like a file reference
-                    if "." in fname and "/" not in fname:
-                        expected = f"test-data/{fname}"
-                        if expected not in file_paths:
-                            errors.append(f"Test data file '{expected}' referenced in {path} but not generated")
+                    if "." not in fname or "/" in fname:
+                        continue
+                    # Numeric param values (e.g. 0.5, 1e-3) contain a dot but
+                    # are never file references.
+                    try:
+                        float(fname)
+                        continue
+                    except ValueError:
+                        pass
+                    expected = f"test-data/{fname}"
+                    if expected not in file_paths:
+                        errors.append(f"Test data file '{expected}' referenced in {path} but not generated")
 
     # Check macro token references
     macro_tokens: set[str] = set()

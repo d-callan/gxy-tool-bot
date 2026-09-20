@@ -153,6 +153,27 @@ def test_validation_comma_separated_test_data() -> None:
     assert not any("file1.fa" in e for e in result.errors)
 
 
+def test_validation_numeric_test_param_not_flagged() -> None:
+    """Numeric test param values (e.g. 0.5, 1e-3) are not file references."""
+    xml = b"""<?xml version="1.0"?>
+<tool id="test" name="Test" version="1.0.0">
+    <tests>
+        <test>
+            <param name="threshold" value="0.5"/>
+            <param name="epsilon" value="1e-3"/>
+            <param name="replicates" value="10"/>
+            <param name="input" value="sample.fasta"/>
+        </test>
+    </tests>
+</tool>"""
+    files = [
+        GeneratedFile(path="test.xml", content=xml),
+        GeneratedFile(path="test-data/sample.fasta", content=b">seq1\nACGT"),
+    ]
+    result = validate_generated_files(files)
+    assert not any("test-data" in e for e in result.errors)
+
+
 def test_validation_undefined_macro() -> None:
     xml = b"""<?xml version="1.0"?>
 <tool id="test" name="Test" version="1.0.0">
