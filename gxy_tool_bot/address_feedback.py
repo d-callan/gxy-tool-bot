@@ -24,6 +24,11 @@ from gxy_tool_bot.utils import read_tool_files
 
 logger = logging.getLogger(__name__)
 
+# CI report artifact names (lowercase match). Keep to names CI actually
+# produces — a bare "test" keyword also matched e.g. 'gitignored-test-data',
+# a binary zip of test files whose contents then got dumped into the prompt.
+_ARTIFACT_NAME_KEYWORDS = ("lint", "test result", "tool test output", "file size")
+
 
 @dataclass
 class FeedbackContext:
@@ -62,6 +67,8 @@ def _collect_feedback(gh: GitHubClient, pr_number: int, tool_dir: Path) -> Feedb
     # This assumes the CI workflow uploads failure artifacts in the same style as
     # the IUC tools-iuc repo (e.g. 'Tool linting output', 'Python linting output',
     # 'R linting output', 'All tool test results', 'Tool test output N').
+    # Anything not matching _ARTIFACT_NAME_KEYWORDS is skipped, so binary bundles
+    # like 'gitignored-test-data' are never downloaded.
     # If the CI workflow behavior changes or a different repo uses different
     # artifact naming conventions, this may not pick up CI failure info.
     ci_artifacts: dict[str, str] = {}
@@ -75,7 +82,7 @@ def _collect_feedback(gh: GitHubClient, pr_number: int, tool_dir: Path) -> Feedb
         for artifact in artifacts:
             name = artifact["name"]
             # Only download artifacts that look like CI reports
-            if not any(kw in name.lower() for kw in ("lint", "test", "python", "r lint", "file size")):
+            if not any(kw in name.lower() for kw in _ARTIFACT_NAME_KEYWORDS):
                 continue
             # Skip per-chunk test artifacts if combined results are available
             if has_combined and name.startswith("Tool test output "):
