@@ -1604,7 +1604,9 @@ def test_planemo_tools_added_when_installed(tmp_path: Path) -> None:
     lint_tool = next(t for t in tools if t.name == "planemo_lint")
     test_tool = next(t for t in tools if t.name == "planemo_test")
     assert lint_tool.timeout == 180
-    assert test_tool.timeout == 300
+    # Wrapper timeout must exceed planemo's own 300s subprocess timeout so the
+    # tool's own timeout error reaches the agent instead of the wrapper's.
+    assert test_tool.timeout > 300
 
 
 def test_run_in_conda_success(tmp_path: Path) -> None:
@@ -1772,7 +1774,8 @@ def test_run_in_conda_tool_added_when_installed(tmp_path: Path) -> None:
     tool_names = [t.name for t in tools]
     assert "run_in_conda" in tool_names
     conda_tool = next(t for t in tools if t.name == "run_in_conda")
-    assert conda_tool.timeout == 360
+    # Wrapper timeout must cover worst case: 300s env creation + 300s command.
+    assert conda_tool.timeout > 600
     # track_file should also be available alongside run_in_conda
     assert "track_file" in tool_names
     track_tool = next(t for t in tools if t.name == "track_file")
