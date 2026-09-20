@@ -174,6 +174,48 @@ def test_validation_numeric_test_param_not_flagged() -> None:
     assert not any("test-data" in e for e in result.errors)
 
 
+def test_validation_numeric_filename_on_data_input_flagged() -> None:
+    """A data input whose test value is numeric (e.g. test-data/1.0) is still
+    checked — the float skip only applies to non-data params."""
+    xml = b"""<?xml version="1.0"?>
+<tool id="test" name="Test" version="1.0.0">
+    <inputs>
+        <param name="input" type="data"/>
+        <param name="threshold" type="float"/>
+    </inputs>
+    <tests>
+        <test>
+            <param name="input" value="1.0"/>
+            <param name="threshold" value="0.5"/>
+        </test>
+    </tests>
+</tool>"""
+    files = [GeneratedFile(path="test.xml", content=xml)]
+    result = validate_generated_files(files)
+    assert any("test-data/1.0" in e for e in result.errors)
+    assert not any("0.5" in e for e in result.errors)
+
+
+def test_validation_non_data_param_dotted_value_not_flagged() -> None:
+    """Select/text params with dots in values are never file references."""
+    xml = b"""<?xml version="1.0"?>
+<tool id="test" name="Test" version="1.0.0">
+    <inputs>
+        <param name="db" type="select">
+            <option value="hg19.1">hg19.1</option>
+        </param>
+    </inputs>
+    <tests>
+        <test>
+            <param name="db" value="hg19.1"/>
+        </test>
+    </tests>
+</tool>"""
+    files = [GeneratedFile(path="test.xml", content=xml)]
+    result = validate_generated_files(files)
+    assert not any("test-data" in e for e in result.errors)
+
+
 def test_validation_undefined_macro() -> None:
     xml = b"""<?xml version="1.0"?>
 <tool id="test" name="Test" version="1.0.0">
