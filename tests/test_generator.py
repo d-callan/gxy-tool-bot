@@ -15,18 +15,31 @@ from gxy_tool_bot.validation import ValidationResult, validate_generated_files, 
 def test_sanitized_env_drops_credential_vars(monkeypatch: pytest.MonkeyPatch) -> None:
     for name in (
         "GH_TOKEN", "GXY_TOOL_BOT_API_KEY", "MYDB_PASSWORD",
-        "AWS_ACCESS_KEY_ID", "DATABASE_URL", "DOCKER_AUTH_CONFIG",
+        "AWS_ACCESS_KEY_ID", "DOCKER_AUTH_CONFIG", "OPENAI_APIKEY",
     ):
         monkeypatch.setenv(name, "secret")
-    monkeypatch.setenv("KEEP_ME", "value")
     env = sanitized_env()
     for name in (
         "GH_TOKEN", "GXY_TOOL_BOT_API_KEY", "MYDB_PASSWORD",
-        "AWS_ACCESS_KEY_ID", "DATABASE_URL", "DOCKER_AUTH_CONFIG",
+        "AWS_ACCESS_KEY_ID", "DOCKER_AUTH_CONFIG", "OPENAI_APIKEY",
     ):
         assert name not in env
-    assert env["KEEP_ME"] == "value"
     assert "PATH" in env
+
+
+def test_sanitized_env_keeps_plain_config_vars(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Non-credential config vars containing marker-like substrings survive."""
+    for name in (
+        "GITHUB_SERVER_URL", "PIP_INDEX_URL", "PYTHON_KEYRING_BACKEND",
+        "GIT_AUTHOR_NAME", "KEEP_ME", "DATABASE_URL",
+    ):
+        monkeypatch.setenv(name, "value")
+    env = sanitized_env()
+    for name in (
+        "GITHUB_SERVER_URL", "PIP_INDEX_URL", "PYTHON_KEYRING_BACKEND",
+        "GIT_AUTHOR_NAME", "KEEP_ME", "DATABASE_URL",
+    ):
+        assert env[name] == "value"
 
 
 def test_sanitized_env_drops_configured_api_key_name(monkeypatch: pytest.MonkeyPatch) -> None:

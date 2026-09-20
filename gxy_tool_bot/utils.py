@@ -4,27 +4,24 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# Environment variables whose names contain these markers or end in these
-# suffixes are treated as credentials and not passed to subprocesses spawned
-# by tool calls. Substring markers cover names like AWS_ACCESS_KEY_ID and
-# DOCKER_AUTH_CONFIG that don't share a common suffix.
-_SECRET_ENV_MARKERS = (
-    "TOKEN", "KEY", "SECRET", "PASSWORD", "PASSWD",
-    "CREDENTIAL", "AUTH", "DSN",
-)
-_SECRET_ENV_SUFFIXES = ("_URL",)
+# Environment variables are treated as credentials when any
+# underscore/dash-delimited name component matches a marker — this catches
+# AWS_ACCESS_KEY_ID and DOCKER_AUTH_CONFIG while leaving ordinary config vars
+# like GITHUB_SERVER_URL, PIP_INDEX_URL, and PYTHON_KEYRING_BACKEND alone.
+_SECRET_ENV_COMPONENTS = {
+    "TOKEN", "KEY", "APIKEY", "SECRET", "PASSWORD", "PASSWD",
+    "CREDENTIAL", "CREDENTIALS", "AUTH", "DSN",
+}
 
 
 def _is_sensitive_env_name(name: str) -> bool:
-    upper = name.upper()
-    return (
-        any(marker in upper for marker in _SECRET_ENV_MARKERS)
-        or upper.endswith(_SECRET_ENV_SUFFIXES)
-    )
+    components = re.split(r"[_\-.]+", name.upper())
+    return any(part in _SECRET_ENV_COMPONENTS for part in components)
 
 
 def sanitized_env(extra_names: set[str] | None = None) -> dict[str, str]:
