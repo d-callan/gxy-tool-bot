@@ -70,6 +70,15 @@ def test_parse_update_tool_dir_cleaned() -> None:
         assert req.tool_dir == "seqtk", raw
 
 
+def test_parse_update_tool_dir_rejects_unsafe() -> None:
+    # Anything that isn't a single safe path component is rejected so the
+    # name can't escape tools/ or inject lines into workflow outputs.
+    for raw in ("../other", "tools/../other", "foo/bar", "seqtk\nPWNED=x", ".", ".."):
+        body = f"### Tool directory\n\n{raw}\n\n### What to change\n\nfix\n"
+        req = parse_update_issue_body(body)
+        assert req.tool_dir == "", raw
+
+
 def test_parse_update_legacy_key_value() -> None:
     body = (
         "Tool directory: seqtk\n"
@@ -180,7 +189,7 @@ def test_update_tool_stages_files(tmp_path) -> None:
     af.ApiClient = _FakeClient
     af.run_agent_with_validation = fake_loop
     try:
-        generated, result, validation = update_tool(
+        generated, result, validation, _retries = update_tool(
             description="bump", links=[], plan_markdown="plan",
             config=config, api_key="k",
             src_tool_dir=src, output_dir=out, tool_dir_name="seqtk",

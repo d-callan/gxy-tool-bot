@@ -113,6 +113,13 @@ jobs:
           IGNORED_FILES=$(find "tools/$TOOL_DIR" -type f | git check-ignore --no-index --files-from=- 2>/dev/null || true)
           # Add everything that isn't ignored
           git add "tools/$TOOL_DIR/" || true
+          if git diff --cached --quiet; then
+            # The agent can legitimately produce no changes (e.g. it declines an
+            # update, or regenerates identical files) — commit and PR creation
+            # would both fail on an empty diff.
+            echo "No changes to commit — skipping PR creation"
+            gh issue comment $ISSUE_NUMBER --body "⚠️ Bot finished but produced no changes to \`tools/$TOOL_DIR/\` — nothing to commit. Add the \`retry-generate\` label to try again."
+          else
           # Use LLM-generated commit message if available, otherwise fallback
           # (.is-update is written by the CLI for tool-update issues)
           if [ -f "$GITHUB_WORKSPACE/.commit-msg" ]; then
@@ -152,8 +159,10 @@ jobs:
               --body "$PR_BODY"
             gh issue comment $ISSUE_NUMBER --body "✅ Tool generated successfully — PR #$PR_NUMBER is ready for review."
           fi
+          gh issue edit $ISSUE_NUMBER --add-label "pr-opened"
+          fi
           # If some files were gitignored, post a comment for human review
-          if [ -n "$IGNORED_FILES" ]; then
+          if [ -n "$IGNORED_FILES" ] && [ -n "$PR_NUMBER" ]; then
             IGNORED_MSG="⚠️ The following files were generated but are excluded by .gitignore and were NOT committed:\n\n"
             for f in $IGNORED_FILES; do
               IGNORED_MSG+=" - \`$f\`\n"
@@ -161,7 +170,6 @@ jobs:
             IGNORED_MSG+="\nThese files are needed for the tool tests. To include them, a maintainer can run \`git add -f\` for each file, or download them from the [workflow artifacts](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
             gh pr comment "$PR_NUMBER" --body "$(echo -e "$IGNORED_MSG")"
           fi
-          gh issue edit $ISSUE_NUMBER --add-label "pr-opened"
           # Clean up intermediary files
           rm -f "$GITHUB_WORKSPACE/.commit-msg" "$GITHUB_WORKSPACE/.pr-body" "$GITHUB_WORKSPACE/.is-update"
       - name: Upload gitignored files as artifacts

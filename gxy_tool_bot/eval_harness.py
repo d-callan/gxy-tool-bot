@@ -572,7 +572,7 @@ def run_update_case(
     plan_md = plan_path.read_text()
 
     try:
-        generated, result, validation = update_tool(
+        generated, result, validation, validation_retries = update_tool(
             description=upd.get("description", case.description),
             links=upd.get("links", []),
             plan_markdown=plan_md,
@@ -614,7 +614,7 @@ def run_update_case(
         validation_passed=validation.valid,
         planemo_lint_passed=planemo_lint, planemo_test_passed=planemo_test,
         assertions_passed=assertions_passed, assertions_failed=assertion_failures,
-        agent_iterations=result.iterations, validation_retries=0,
+        agent_iterations=result.iterations, validation_retries=validation_retries,
         agent_terminated_naturally=result.terminated_naturally,
         gave_up=generated.give_up_reason is not None,
         files_generated=len(generated.files), error=None,
@@ -700,7 +700,7 @@ def _build_summary(results: list[CaseResult]) -> dict:
         },
         "by_type": {
             t: _stats([r for r in results if r.type == t])
-            for t in ("generate", "feedback")
+            for t in ("generate", "feedback", "update")
         },
         "planemo": planemo_stats,
     }

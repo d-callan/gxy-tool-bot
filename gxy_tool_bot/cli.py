@@ -210,7 +210,7 @@ def generate(issue: int, config_path: str, output_dir: str, actor: str | None, c
                 sys.exit(1)
             logger.info("Updating tools/%s from plan on issue #%d", tool_dir, issue)
             try:
-                generated, result, validation = update_tool(
+                generated, result, validation, _retries = update_tool(
                     description=update_request.description,
                     links=update_request.links,
                     plan_markdown=plan_md,
@@ -380,7 +380,7 @@ def address_feedback_cmd(pr_number: int, config_path: str, tool_dir: str, actor:
     with GitHubClient(gh_token, config.repo) as gh:
         logger.info("Addressing feedback on PR #%d", pr_number)
         try:
-            generated, result, validation = address_feedback(
+            generated, result, validation, _retries = address_feedback(
                 pr_number=pr_number,
                 config=config,
                 api_key=api_key,

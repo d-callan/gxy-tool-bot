@@ -322,7 +322,7 @@ def _run_edit_agent(
     plan_markdown: str | None = None,
     max_iterations_override: int | None = None,
     max_validation_retries_override: int | None = None,
-) -> tuple[GeneratedTool, AgentResult, ValidationResult]:
+) -> tuple[GeneratedTool, AgentResult, ValidationResult, int]:
     """Shared tail of address_feedback and update_tool: track the tool
     directory's existing files in a FileWriter, run the agent loop with
     validation retries, then run integrated review if enabled.
@@ -331,7 +331,8 @@ def _run_edit_agent(
     placeholder); tracked bytes always come from disk via
     ``_load_existing_files`` — files are already on disk in both flows.
     ``mode`` selects the .agent-notes section naming ("feedback" ->
-    'Feedback round N', "update" -> 'Update round N').
+    'Feedback round N', "update" -> 'Update round N'). The fourth return
+    value is the number of validation-retry rounds the agent used.
     """
     file_writer = FileWriter(tool_dir, mode=mode, env_scrub_names={config.api.api_key_env})
     _load_existing_files(file_writer, tool_dir, existing_files)
@@ -379,7 +380,7 @@ def _run_edit_agent(
         give_up_reason=file_writer.give_up_reason,
     )
 
-    return generated, result, validation
+    return generated, result, validation, _validation_retries
 
 
 def _load_existing_files(file_writer: FileWriter, tool_dir: Path, existing_files: dict[str, str]) -> None:
@@ -402,7 +403,7 @@ def address_feedback(
     gh: GitHubClient,
     max_iterations_override: int | None = None,
     max_validation_retries_override: int | None = None,
-) -> tuple[GeneratedTool, AgentResult, ValidationResult]:
+) -> tuple[GeneratedTool, AgentResult, ValidationResult, int]:
     """
     Address feedback on an existing PR:
     1. Collect PR comments, review comments, CI failures, and existing files.
@@ -462,7 +463,7 @@ def update_tool(
     tool_dir_name: str,
     max_iterations_override: int | None = None,
     max_validation_retries_override: int | None = None,
-) -> tuple[GeneratedTool, AgentResult, ValidationResult]:
+) -> tuple[GeneratedTool, AgentResult, ValidationResult, int]:
     """
     Implement an approved update plan on an existing tool:
     1. Stage the existing tool directory (src_tool_dir) into output_dir —

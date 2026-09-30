@@ -586,11 +586,22 @@ def _parse_update_field_lines(text: str) -> dict[str, str]:
     return fields
 
 
+# Tool directories are flat names under tools/ — a single safe path
+# component. Anything else (separators, traversal, newlines) is rejected so
+# the name can never escape tools/ or inject lines into workflow outputs.
+_TOOL_DIR_SAFE_RE = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.\-]*")
+
+
 def _clean_tool_dir(value: str) -> str:
-    """Normalize a user-provided tool directory to a name under tools/."""
+    """Normalize a user-provided tool directory to a name under tools/.
+
+    Returns "" when the value isn't a single safe path component.
+    """
     cleaned = value.strip().strip("`").strip("/")
     if cleaned.startswith("tools/"):
         cleaned = cleaned[len("tools/"):]
+    if not _TOOL_DIR_SAFE_RE.fullmatch(cleaned) or ".." in cleaned:
+        return ""
     return cleaned
 
 
