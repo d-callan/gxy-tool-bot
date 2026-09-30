@@ -778,7 +778,9 @@ def _build_tool_definitions(file_writer: FileWriter, config: BotConfig | None = 
                 "required": ["path"],
             },
             handler=file_writer.planemo_test,
-            timeout=300,
+            # planemo's own subprocess timeout is 300s — the wrapper needs headroom
+            # or it fires before the tool's own timeout error can be reported.
+            timeout=360,
         ))
 
     if shutil.which("micromamba") or shutil.which("conda"):
@@ -817,7 +819,10 @@ def _build_tool_definitions(file_writer: FileWriter, config: BotConfig | None = 
                 "required": ["packages", "command"],
             },
             handler=file_writer.run_in_conda,
-            timeout=360,
+            # Worst case: 300s env creation + 300s command — the wrapper must
+            # exceed both or a cold env create always "times out" to the agent
+            # while conda is still working.
+            timeout=660,
         ))
         tools.append(ToolDefinition(
             name="track_file",
