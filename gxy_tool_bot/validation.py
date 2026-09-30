@@ -91,7 +91,7 @@ def validate_generated_files(files: list[GeneratedFile]) -> ValidationResult:
             try:
                 root = ET.fromstring(f.content.decode("utf-8"))
                 xml_contents[f.path] = root
-            except ET.ParseError as e:
+            except (ET.ParseError, UnicodeDecodeError) as e:
                 errors.append(f"XML parse error in {f.path}: {e}")
 
     # Check test data references
