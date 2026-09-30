@@ -2,9 +2,16 @@
 
 from __future__ import annotations
 
-from gxy_tool_bot.address_feedback import FeedbackContext, _build_feedback_user_prompt, _collect_feedback
+from gxy_tool_bot.address_feedback import (
+    FeedbackContext,
+    _build_feedback_user_prompt,
+    _collect_feedback,
+    _load_existing_files,
+)
+from gxy_tool_bot.generator import FileWriter
 from gxy_tool_bot.github_client import Comment
 from gxy_tool_bot.planemo_utils import summarize_test_json
+from gxy_tool_bot.utils import read_tool_files
 
 
 def _make_comment(body: str, author: str = "maintainer", cid: int = 1,
@@ -264,6 +271,32 @@ def test_collect_feedback_filters_resolved_comments(tmp_path) -> None:
     assert 103 not in comment_ids
 
 
+def test_collect_feedback_skips_non_report_artifacts(tmp_path) -> None:
+    """Artifacts that aren't CI reports must not be downloaded — e.g.
+    'gitignored-test-data' is a binary zip that matched the old 'test' keyword."""
+    from unittest.mock import MagicMock
+
+    gh = MagicMock()
+    gh.get_pr_comments.return_value = []
+    gh.get_pr_review_comments.return_value = []
+    gh.get_resolved_review_comment_ids.return_value = set()
+    gh.get_pr_check_runs.return_value = []
+    gh.get_pr_artifacts.return_value = [
+        {"name": "gitignored-test-data", "id": 1},
+        {"name": "some-random-bundle", "id": 2},
+        {"name": "Tool linting output", "id": 3},
+        {"name": "Tool test output 1", "id": 4},
+    ]
+    gh.download_artifact.return_value = {"report.txt": b"lint warnings here"}
+
+    ctx = _collect_feedback(gh, 1, tmp_path)
+
+    downloaded_ids = {c.args[0] for c in gh.download_artifact.call_args_list}
+    assert downloaded_ids == {3, 4}
+    assert any("Tool linting output" in k for k in ctx.ci_artifacts)
+    assert not any("gitignored" in k for k in ctx.ci_artifacts)
+
+
 def test_collect_feedback_includes_all_on_graphql_failure(tmp_path) -> None:
     """_collect_feedback should include all comments if GraphQL call fails."""
     from unittest.mock import MagicMock
@@ -280,3 +313,24 @@ def test_collect_feedback_includes_all_on_graphql_failure(tmp_path) -> None:
 
     ctx = _collect_feedback(gh, 1, tmp_path)
     assert len(ctx.review_comments) == 2
+
+
+def test_load_existing_files_preserves_binary(tmp_path) -> None:
+    """Binary files are tracked with real bytes and never overwritten on disk."""
+    tool_dir = tmp_path / "mytool"
+    (tool_dir / "test-data").mkdir(parents=True)
+    binary = b"\x00\x01\x02\xff\xfe binary payload"
+    (tool_dir / "test-data" / "x.bam").write_bytes(binary)
+    (tool_dir / "tool.xml").write_text("<tool/>", encoding="utf-8")
+
+    existing_files = read_tool_files(tool_dir)
+    assert existing_files["test-data/x.bam"].startswith("[binary file")
+
+    fw = FileWriter(tool_dir, mode="feedback")
+    _load_existing_files(fw, tool_dir, existing_files)
+
+    # Tracked content is the real bytes, not the placeholder string.
+    assert fw.files["test-data/x.bam"] == binary
+    assert fw.files["tool.xml"] == b"<tool/>"
+    # The file on disk is untouched.
+    assert (tool_dir / "test-data" / "x.bam").read_bytes() == binary

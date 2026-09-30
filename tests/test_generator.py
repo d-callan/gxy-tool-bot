@@ -153,6 +153,69 @@ def test_validation_comma_separated_test_data() -> None:
     assert not any("file1.fa" in e for e in result.errors)
 
 
+def test_validation_numeric_test_param_not_flagged() -> None:
+    """Numeric test param values (e.g. 0.5, 1e-3) are not file references."""
+    xml = b"""<?xml version="1.0"?>
+<tool id="test" name="Test" version="1.0.0">
+    <tests>
+        <test>
+            <param name="threshold" value="0.5"/>
+            <param name="epsilon" value="1e-3"/>
+            <param name="replicates" value="10"/>
+            <param name="input" value="sample.fasta"/>
+        </test>
+    </tests>
+</tool>"""
+    files = [
+        GeneratedFile(path="test.xml", content=xml),
+        GeneratedFile(path="test-data/sample.fasta", content=b">seq1\nACGT"),
+    ]
+    result = validate_generated_files(files)
+    assert not any("test-data" in e for e in result.errors)
+
+
+def test_validation_numeric_filename_on_data_input_flagged() -> None:
+    """A data input whose test value is numeric (e.g. test-data/1.0) is still
+    checked — the float skip only applies to non-data params."""
+    xml = b"""<?xml version="1.0"?>
+<tool id="test" name="Test" version="1.0.0">
+    <inputs>
+        <param name="input" type="data"/>
+        <param name="threshold" type="float"/>
+    </inputs>
+    <tests>
+        <test>
+            <param name="input" value="1.0"/>
+            <param name="threshold" value="0.5"/>
+        </test>
+    </tests>
+</tool>"""
+    files = [GeneratedFile(path="test.xml", content=xml)]
+    result = validate_generated_files(files)
+    assert any("test-data/1.0" in e for e in result.errors)
+    assert not any("0.5" in e for e in result.errors)
+
+
+def test_validation_non_data_param_dotted_value_not_flagged() -> None:
+    """Select/text params with dots in values are never file references."""
+    xml = b"""<?xml version="1.0"?>
+<tool id="test" name="Test" version="1.0.0">
+    <inputs>
+        <param name="db" type="select">
+            <option value="hg19.1">hg19.1</option>
+        </param>
+    </inputs>
+    <tests>
+        <test>
+            <param name="db" value="hg19.1"/>
+        </test>
+    </tests>
+</tool>"""
+    files = [GeneratedFile(path="test.xml", content=xml)]
+    result = validate_generated_files(files)
+    assert not any("test-data" in e for e in result.errors)
+
+
 def test_validation_undefined_macro() -> None:
     xml = b"""<?xml version="1.0"?>
 <tool id="test" name="Test" version="1.0.0">
@@ -1604,7 +1667,9 @@ def test_planemo_tools_added_when_installed(tmp_path: Path) -> None:
     lint_tool = next(t for t in tools if t.name == "planemo_lint")
     test_tool = next(t for t in tools if t.name == "planemo_test")
     assert lint_tool.timeout == 180
-    assert test_tool.timeout == 300
+    # Wrapper timeout must exceed planemo's own 300s subprocess timeout so the
+    # tool's own timeout error reaches the agent instead of the wrapper's.
+    assert test_tool.timeout > 300
 
 
 def test_run_in_conda_success(tmp_path: Path) -> None:
@@ -1772,7 +1837,8 @@ def test_run_in_conda_tool_added_when_installed(tmp_path: Path) -> None:
     tool_names = [t.name for t in tools]
     assert "run_in_conda" in tool_names
     conda_tool = next(t for t in tools if t.name == "run_in_conda")
-    assert conda_tool.timeout == 360
+    # Wrapper timeout must cover worst case: 300s env creation + 300s command.
+    assert conda_tool.timeout > 600
     # track_file should also be available alongside run_in_conda
     assert "track_file" in tool_names
     track_tool = next(t for t in tools if t.name == "track_file")

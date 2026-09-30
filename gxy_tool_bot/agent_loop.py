@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import json
 import logging
 from dataclasses import dataclass
@@ -11,7 +12,7 @@ from gxy_tool_bot.api_client import ApiClient, ChatResponse
 
 logger = logging.getLogger(__name__)
 
-_TOOL_TIMEOUT_SECONDS = 120
+_TOOL_TIMEOUT_SECONDS = 300
 _SUMMARIZE_BATCH_SIZE = 10
 _SUMMARIZE_MIN_CHARS = 500
 _SUMMARIZE_MIN_BATCH_CHARS = 5000
@@ -57,16 +58,23 @@ def _prune_previous_writes(messages: list[dict], path: str, current_call_id: str
 
 
 def _run_tool_with_timeout(handler: Callable[[dict], str], args: dict, timeout: int = _TOOL_TIMEOUT_SECONDS) -> str:
-    """Run a tool handler with a wall-clock timeout. Returns error string if timed out."""
-    import concurrent.futures
+    """Run a tool handler with a wall-clock timeout. Returns error string if timed out.
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-        future = executor.submit(handler, args)
-        try:
-            return future.result(timeout=timeout)
-        except concurrent.futures.TimeoutError:
-            logger.warning("Tool call timed out after %ds", timeout)
-            return f"Error: tool call timed out after {timeout}s"
+    Threads cannot be killed in Python, so on timeout the handler keeps running
+    in the background — this bounds what the agent loop waits for, not what the
+    handler does. Tools with long work (planemo, conda) have their own internal
+    subprocess timeouts that eventually terminate the orphan.
+    """
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    future = executor.submit(handler, args)
+    try:
+        result = future.result(timeout=timeout)
+    except concurrent.futures.TimeoutError:
+        logger.warning("Tool call timed out after %ds", timeout)
+        executor.shutdown(wait=False)
+        return f"Error: tool call timed out after {timeout}s"
+    executor.shutdown(wait=False)
+    return result
 
 
 @dataclass

@@ -465,15 +465,63 @@ def generate_plan(
     return plan_markdown, result
 
 
+_NO_RESPONSE_RE = re.compile(r"(?i)_?no response\.?_?")
+
+_ISSUE_FORM_HEADING_RE = re.compile(r"^###\s+(.+?)\s*$", re.MULTILINE)
+
+# Field labels used by the issue form; other `###` headings (e.g. markdown a
+# user pasted into the Description textarea) must not act as field boundaries.
+_ISSUE_FORM_LABELS = {"tool name", "description", "links", "contact"}
+
+
+def _find_issue_form_boundaries(body: str, labels: set[str] | None = None) -> list[re.Match]:
+    """Positions of recognized `### Label` field headings in the body.
+
+    ``labels`` defaults to the tool-request form's labels; other templates
+    (e.g. tool-update) pass their own set.
+    """
+    if labels is None:
+        labels = _ISSUE_FORM_LABELS
+    return [
+        m for m in _ISSUE_FORM_HEADING_RE.finditer(body)
+        if m.group(1).strip().lower() in labels
+    ]
+
+
+def _parse_issue_form_fields(body: str, boundaries: list[re.Match]) -> dict[str, str]:
+    """Parse `### Label` sections from a GitHub issue-form body.
+
+    Issue forms render each field as a `### Label` heading followed by the
+    value, and empty optional fields as `_No response._`. Returns a map of
+    lowercased label -> value text; empty responses map to "".
+    """
+    fields: dict[str, str] = {}
+    for i, match in enumerate(boundaries):
+        label = match.group(1).strip().lower()
+        start = match.end()
+        end = boundaries[i + 1].start() if i + 1 < len(boundaries) else len(body)
+        value = body[start:end].strip()
+        fields[label] = "" if _NO_RESPONSE_RE.fullmatch(value) else value
+    return fields
+
+
 def parse_issue_body(body: str) -> ToolRequest:
-    """Parse a GitHub issue body into a ToolRequest."""
+    """Parse a GitHub issue body into a ToolRequest.
+
+    Handles GitHub issue-form output (`### Label` headings) and plain
+    `Label: value` lines; falls back to treating the whole body as the
+    description.
+    """
     tool_name = ""
     description = ""
     contact = None
 
-    # Try to parse structured fields from the issue body
-    lines = body.strip().split("\n")
-    for line in lines:
+    boundaries = _find_issue_form_boundaries(body)
+    # Everything from the first recognized field heading onward is consumed as
+    # form-field values, so legacy `Label:` lines only count in the preamble —
+    # a field's value may itself contain label-like lines.
+    legacy_text = body[: boundaries[0].start()] if boundaries else body
+    for line in legacy_text.strip().split("\n"):
         line = line.strip()
         if line.lower().startswith("tool name:"):
             tool_name = line.split(":", 1)[1].strip()
@@ -481,6 +529,14 @@ def parse_issue_body(body: str) -> ToolRequest:
             description = line.split(":", 1)[1].strip()
         elif line.lower().startswith("contact:"):
             contact = line.split(":", 1)[1].strip() or None
+
+    form_fields = _parse_issue_form_fields(body, boundaries)
+    if "tool name" in form_fields:
+        tool_name = form_fields["tool name"]
+    if "description" in form_fields:
+        description = form_fields["description"]
+    if "contact" in form_fields:
+        contact = form_fields["contact"] or None
 
     # Extract all URLs from the body via regex — robust against any formatting
     links = re.findall(r'https?://[^\s<>"\')]+', body)
@@ -497,11 +553,8 @@ def parse_issue_body(body: str) -> ToolRequest:
     )
 
 
-_NO_RESPONSE_RE = re.compile(r"(?i)_?no response\.?_?")
-_ISSUE_FORM_HEADING_RE = re.compile(r"^###\s+(.+?)\s*$", re.MULTILINE)
-
-# Field labels rendered by the tool-update issue form. Aliases cover minor
-# label variations and hand-written issues.
+# Field labels rendered by the tool-update issue form, mapped to canonical
+# field names. Aliases cover minor label variations and hand-written issues.
 _UPDATE_FIELD_ALIASES = {
     "tool directory": "tool_dir",
     "tool": "tool_dir",
@@ -512,28 +565,6 @@ _UPDATE_FIELD_ALIASES = {
     "links": "links",
     "contact": "contact",
 }
-
-
-def _parse_form_field_sections(body: str, aliases: dict[str, str]) -> dict[str, str]:
-    """Parse GitHub issue-form output (`### Label` headings) into canonical fields.
-
-    Only headings whose label appears in ``aliases`` act as field boundaries —
-    other `###` headings (e.g. markdown pasted into a textarea) are treated as
-    content. Empty optional fields render as `_No response._` and map to "".
-    Returns a map of canonical field name -> value text.
-    """
-    headings = [
-        m for m in _ISSUE_FORM_HEADING_RE.finditer(body)
-        if m.group(1).strip().lower() in aliases
-    ]
-    fields: dict[str, str] = {}
-    for i, match in enumerate(headings):
-        key = aliases[match.group(1).strip().lower()]
-        start = match.end()
-        end = headings[i + 1].start() if i + 1 < len(headings) else len(body)
-        value = body[start:end].strip()
-        fields[key] = "" if _NO_RESPONSE_RE.fullmatch(value) else value
-    return fields
 
 
 def _parse_update_field_lines(text: str) -> dict[str, str]:
@@ -570,13 +601,14 @@ def parse_update_issue_body(body: str) -> UpdateRequest:
     `### Links` / `### Contact` headings) and plain `Label: value` lines.
     Falls back to treating the whole body as the description.
     """
-    first_heading = _ISSUE_FORM_HEADING_RE.search(body)
+    boundaries = _find_issue_form_boundaries(body, set(_UPDATE_FIELD_ALIASES))
     # `Label:` lines only count before the first `###` heading — a field's
     # value may itself contain label-like lines.
-    legacy_text = body[: first_heading.start()] if first_heading else body
+    legacy_text = body[: boundaries[0].start()] if boundaries else body
 
     fields = _parse_update_field_lines(legacy_text)
-    fields.update(_parse_form_field_sections(body, _UPDATE_FIELD_ALIASES))
+    for label, value in _parse_issue_form_fields(body, boundaries).items():
+        fields[_UPDATE_FIELD_ALIASES[label]] = value
 
     tool_dir = _clean_tool_dir(fields.get("tool_dir", ""))
     description = fields.get("description", "")

@@ -26,7 +26,7 @@ from gxy_tool_bot.generator import (
 from gxy_tool_bot.validation import ValidationResult, run_agent_with_validation
 from gxy_tool_bot.github_client import Comment, GitHubClient
 from gxy_tool_bot.planemo_utils import summarize_test_json
-from gxy_tool_bot.utils import read_tool_files
+from gxy_tool_bot.utils import is_report_artifact, read_tool_files
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +70,8 @@ def _collect_feedback(gh: GitHubClient, pr_number: int, tool_dir: Path) -> Feedb
     # This assumes the CI workflow uploads failure artifacts in the same style as
     # the IUC tools-iuc repo (e.g. 'Tool linting output', 'Python linting output',
     # 'R linting output', 'All tool test results', 'Tool test output N').
+    # Anything not matching is_report_artifact is skipped, so binary bundles
+    # like 'gitignored-test-data' are never downloaded.
     # If the CI workflow behavior changes or a different repo uses different
     # artifact naming conventions, this may not pick up CI failure info.
     ci_artifacts: dict[str, str] = {}
@@ -83,7 +85,7 @@ def _collect_feedback(gh: GitHubClient, pr_number: int, tool_dir: Path) -> Feedb
         for artifact in artifacts:
             name = artifact["name"]
             # Only download artifacts that look like CI reports
-            if not any(kw in name.lower() for kw in ("lint", "test", "python", "r lint", "file size")):
+            if not is_report_artifact(name):
                 continue
             # Skip per-chunk test artifacts if combined results are available
             if has_combined and name.startswith("Tool test output "):
@@ -315,27 +317,24 @@ def _run_edit_agent(
     system_prompt: str,
     user_prompt: str,
     no_files_nudge: str,
-    seed_files: dict[str, bytes],
+    existing_files: dict[str, str],
     mode: str = "feedback",
     plan_markdown: str | None = None,
     max_iterations_override: int | None = None,
     max_validation_retries_override: int | None = None,
 ) -> tuple[GeneratedTool, AgentResult, ValidationResult]:
-    """Shared tail of address_feedback and update_tool: seed the tool directory
-    into a FileWriter, run the agent loop with validation retries, then run
-    integrated review if enabled.
+    """Shared tail of address_feedback and update_tool: track the tool
+    directory's existing files in a FileWriter, run the agent loop with
+    validation retries, then run integrated review if enabled.
 
-    ``seed_files`` are the existing tool files (relative path -> bytes) to load
-    into the writer and onto disk before the agent runs. ``mode`` selects the
-    .agent-notes section naming ("feedback" -> 'Feedback round N',
-    "update" -> 'Update round N').
+    ``existing_files`` is the display map (relative path -> text or binary
+    placeholder); tracked bytes always come from disk via
+    ``_load_existing_files`` — files are already on disk in both flows.
+    ``mode`` selects the .agent-notes section naming ("feedback" ->
+    'Feedback round N', "update" -> 'Update round N').
     """
     file_writer = FileWriter(tool_dir, mode=mode, env_scrub_names={config.api.api_key_env})
-    for path, content in seed_files.items():
-        file_writer.files[path] = content
-        dest = tool_dir / path
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_bytes(content)
+    _load_existing_files(file_writer, tool_dir, existing_files)
 
     tools = _build_tool_definitions(file_writer, config)
 
@@ -381,6 +380,18 @@ def _run_edit_agent(
     )
 
     return generated, result, validation
+
+
+def _load_existing_files(file_writer: FileWriter, tool_dir: Path, existing_files: dict[str, str]) -> None:
+    """Populate file_writer's tracked files with the real on-disk bytes.
+
+    ``existing_files`` holds display content — binary files appear as
+    placeholder strings, so tracked bytes always come from disk and nothing
+    is written back (the files are already on disk in the checked-out PR
+    branch).
+    """
+    for path in existing_files:
+        file_writer.files[path] = (tool_dir / path).read_bytes()
 
 
 def address_feedback(
@@ -433,7 +444,7 @@ def address_feedback(
         system_prompt=system_prompt,
         user_prompt=user_prompt,
         no_files_nudge=no_files_nudge,
-        seed_files={p: c.encode("utf-8") for p, c in ctx.existing_files.items()},
+        existing_files=ctx.existing_files,
         mode="feedback",
         max_iterations_override=max_iterations_override,
         max_validation_retries_override=max_validation_retries_override,
@@ -469,17 +480,10 @@ def update_tool(
     shutil.copytree(src_tool_dir, output_dir)
     (output_dir / ".tool-name").unlink(missing_ok=True)
 
-    # Seed the writer from disk bytes — this tracks every existing file
-    # (including binaries) so unchanged files carry over into the PR and the
-    # strays check stays happy.
-    seed_files: dict[str, bytes] = {
-        f.relative_to(output_dir).as_posix(): f.read_bytes()
-        for f in output_dir.rglob("*")
-        if f.is_file()
-    }
-
     # For the prompt, only file names are listed — read_tool_files' binary
-    # placeholders never leave this function.
+    # placeholders never leave this function. The same dict drives
+    # _load_existing_files, which seeds the writer from real disk bytes so
+    # unchanged files (including binaries) carry over into the PR intact.
     existing_files = read_tool_files(output_dir)
 
     system_prompt = _load_template("update_system.txt").render()
@@ -530,7 +534,7 @@ def update_tool(
         system_prompt=system_prompt,
         user_prompt=user_prompt,
         no_files_nudge=no_files_nudge,
-        seed_files=seed_files,
+        existing_files=existing_files,
         mode="update",
         plan_markdown=plan_markdown,
         max_iterations_override=max_iterations_override,
