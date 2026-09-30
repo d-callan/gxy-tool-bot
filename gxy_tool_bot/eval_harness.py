@@ -24,7 +24,7 @@ from pathlib import Path
 
 import yaml
 
-from gxy_tool_bot.address_feedback import FeedbackContext, _build_feedback_user_prompt
+from gxy_tool_bot.address_feedback import FeedbackContext, _build_feedback_user_prompt, update_tool
 from gxy_tool_bot.api_client import ApiClient
 from gxy_tool_bot.config import BotConfig
 from gxy_tool_bot.generator import (
@@ -529,6 +529,99 @@ def run_feedback_case(
     )
 
 
+def run_update_case(
+    case: EvalCase,
+    config: BotConfig,
+    api_key: str,
+    work_dir: Path,
+    run_planemo: bool = True,
+) -> CaseResult:
+    """Run an update eval case.
+
+    Mirrors ``update_tool``: stage the case's ``existing_files`` into a
+    ``src/`` dir, then run the update agent loop against it with the case's
+    ``plan.md`` and ``update.description`` as the approved plan + request.
+    """
+    start = time.time()
+    upd = case.raw.get("update", {})
+    src_dir = work_dir / case.name / "src"
+    output_dir = work_dir / case.name / "output"
+    src_dir.mkdir(parents=True, exist_ok=True)
+
+    for fname in case.raw.get("existing_files", []):
+        src = case.case_dir / fname
+        if src.exists():
+            dest = src_dir / fname
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dest)
+
+    if not any(src_dir.rglob("*")):
+        return CaseResult(
+            name=case.name, type=case.type, difficulty=case.difficulty,
+            description=case.description, passed=False,
+            validation_passed=False, planemo_lint_passed=None,
+            planemo_test_passed=None, assertions_passed=False,
+            assertions_failed=["No existing files found in case"],
+            agent_iterations=0, validation_retries=0,
+            agent_terminated_naturally=False, gave_up=False,
+            files_generated=0, error="No existing files",
+            duration_seconds=time.time() - start,
+        )
+
+    plan_path = case.case_dir / case.raw.get("plan", "plan.md")
+    plan_md = plan_path.read_text()
+
+    try:
+        generated, result, validation = update_tool(
+            description=upd.get("description", case.description),
+            links=upd.get("links", []),
+            plan_markdown=plan_md,
+            config=config,
+            api_key=api_key,
+            src_tool_dir=src_dir,
+            output_dir=output_dir,
+            tool_dir_name=case.name,
+        )
+    except Exception as e:
+        logger.exception("Update case '%s' failed", case.name)
+        return CaseResult(
+            name=case.name, type=case.type, difficulty=case.difficulty,
+            description=case.description, passed=False,
+            validation_passed=False, planemo_lint_passed=None,
+            planemo_test_passed=None, assertions_passed=False,
+            assertions_failed=[f"Exception: {e}"],
+            agent_iterations=0, validation_retries=0,
+            agent_terminated_naturally=False, gave_up=False,
+            files_generated=0, error=str(e),
+            duration_seconds=time.time() - start,
+        )
+
+    files_dict = {f.path: f.content for f in generated.files}
+    assertions = case.raw.get("assertions", [])
+    assertions_passed, assertion_failures = run_assertions(assertions, files_dict)
+
+    planemo_lint = None
+    planemo_test = None
+    if run_planemo and not generated.give_up_reason:
+        planemo_lint = _run_planemo_lint(output_dir, {config.api.api_key_env})
+        planemo_test = _run_planemo_test(output_dir, {config.api.api_key_env})
+
+    passed = validation.valid and assertions_passed and not generated.give_up_reason
+
+    return CaseResult(
+        name=case.name, type=case.type, difficulty=case.difficulty,
+        description=case.description, passed=passed,
+        validation_passed=validation.valid,
+        planemo_lint_passed=planemo_lint, planemo_test_passed=planemo_test,
+        assertions_passed=assertions_passed, assertions_failed=assertion_failures,
+        agent_iterations=result.iterations, validation_retries=0,
+        agent_terminated_naturally=result.terminated_naturally,
+        gave_up=generated.give_up_reason is not None,
+        files_generated=len(generated.files), error=None,
+        duration_seconds=time.time() - start,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Eval runner
 # ---------------------------------------------------------------------------
@@ -548,6 +641,8 @@ def run_eval(
             result = run_generate_case(case, config, api_key, work_dir, run_planemo)
         elif case.type == "feedback":
             result = run_feedback_case(case, config, api_key, work_dir, run_planemo)
+        elif case.type == "update":
+            result = run_update_case(case, config, api_key, work_dir, run_planemo)
         else:
             logger.warning("Unknown case type '%s' for case '%s'", case.type, case.name)
             continue

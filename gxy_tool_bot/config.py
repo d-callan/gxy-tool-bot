@@ -38,6 +38,9 @@ class ExemplarConfig:
 @dataclass
 class LabelConfig:
     request: str = "tool-request"
+    # Applied by the "Tool Update" issue template — routes the issue through the
+    # same plan/generate pipeline, but with the update variants.
+    tool_update: str = "tool-update"
     plan_ready: str = "plan-ready"
     ready_to_implement: str = "ready-to-implement"
     pr_opened: str = "pr-opened"
@@ -117,6 +120,7 @@ def load_config(path: Path) -> BotConfig:
     labels_raw = raw.get("labels", {})
     labels = LabelConfig(
         request=labels_raw.get("request", "tool-request"),
+        tool_update=labels_raw.get("tool_update", "tool-update"),
         plan_ready=labels_raw.get("plan_ready", "plan-ready"),
         ready_to_implement=labels_raw.get("ready_to_implement", "ready-to-implement"),
         pr_opened=labels_raw.get("pr_opened", "pr-opened"),

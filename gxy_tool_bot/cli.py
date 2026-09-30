@@ -17,8 +17,15 @@ from gxy_tool_bot.api_client import ApiClient
 from gxy_tool_bot.generator import GeneratedTool, generate_commit_message, generate_tool
 from gxy_tool_bot.validation import ValidationResult
 from gxy_tool_bot.github_client import GitHubClient
-from gxy_tool_bot.planner import PLAN_MARKER, find_plan_comment, generate_plan, parse_issue_body
-from gxy_tool_bot.address_feedback import address_feedback
+from gxy_tool_bot.planner import (
+    PLAN_MARKER,
+    find_plan_comment,
+    generate_plan,
+    generate_update_plan,
+    parse_issue_body,
+    parse_update_issue_body,
+)
+from gxy_tool_bot.address_feedback import address_feedback, update_tool
 
 logger = logging.getLogger(__name__)
 
@@ -100,11 +107,29 @@ def plan(issue: int, config_path: str) -> None:
 
     with GitHubClient(gh_token, config.repo) as gh:
         issue_data = gh.get_issue(issue)
-        request = parse_issue_body(issue_data.body)
+        is_update = config.labels.tool_update in issue_data.labels
 
-        logger.info("Planning tool: %s", request.tool_name)
         try:
-            plan_md, result = generate_plan(request, config, api_key)
+            if is_update:
+                update_request = parse_update_issue_body(issue_data.body)
+                src_tool_dir = Path("tools") / update_request.tool_dir
+                if not update_request.tool_dir or not src_tool_dir.is_dir():
+                    gh.add_comment(
+                        issue,
+                        f"⚠️ Could not find tool directory `tools/{update_request.tool_dir or '(missing)'}/` "
+                        "in this repo. Check the 'Tool directory' field on the issue, "
+                        "then add the `retry-plan` label to try again.",
+                    )
+                    gh.add_label(issue, config.labels.generation_failed)
+                    sys.exit(1)
+                logger.info("Planning update for tools/%s", update_request.tool_dir)
+                plan_md, result = generate_update_plan(
+                    update_request, config, api_key, src_tool_dir,
+                )
+            else:
+                request = parse_issue_body(issue_data.body)
+                logger.info("Planning tool: %s", request.tool_name)
+                plan_md, result = generate_plan(request, config, api_key)
         except Exception as exc:
             logger.exception("Plan generation failed")
             gh.add_comment(issue, f"⚠️ Plan generation failed: {exc}\n\nAdd the `retry-plan` label to try again.")
@@ -157,7 +182,8 @@ def generate(issue: int, config_path: str, output_dir: str, actor: str | None, c
 
     with GitHubClient(gh_token, config.repo) as gh:
         issue_data = gh.get_issue(issue)
-        request = parse_issue_body(issue_data.body)
+        is_update = config.labels.tool_update in issue_data.labels
+        verb = "update" if is_update else "generate"
 
         comments = gh.get_issue_comments(issue)
         plan_md = find_plan_comment(comments)
@@ -165,36 +191,84 @@ def generate(issue: int, config_path: str, output_dir: str, actor: str | None, c
             click.echo(f"Error: no plan comment found on issue #{issue} (looking for {PLAN_MARKER} marker)", err=True)
             sys.exit(1)
 
-        logger.info("Generating tool from plan on issue #%d", issue)
-        try:
-            generated, result, validation = generate_tool(
-                plan_md, config, api_key, Path(output_dir),
-                max_iterations_override=max_iterations,
-                max_validation_retries_override=max_retries,
-            )
-        except Exception as exc:
-            logger.exception("Tool generation failed")
-            gh.add_comment(issue, f"⚠️ Tool generation failed: {exc}\n\nAdd the `retry-generate` label to try again.")
-            gh.add_label(issue, config.labels.generation_failed)
-            sys.exit(2)
-
-        # Derive tool dir name: prefer agent's explicit choice, then XML filename, then issue body
-        if generated.tool_dir:
-            tool_dir = generated.tool_dir
+        if is_update:
+            update_request = parse_update_issue_body(issue_data.body)
+            tool_dir = update_request.tool_dir
+            src_tool_dir = Path("tools") / tool_dir if tool_dir else None
+            if not tool_dir or not (src_tool_dir and src_tool_dir.is_dir()):
+                click.echo(
+                    f"Error: update issue #{issue} does not resolve to a real "
+                    f"tools/<dir> ('{tool_dir}')", err=True,
+                )
+                gh.add_comment(
+                    issue,
+                    f"⚠️ Could not find tool directory `tools/{tool_dir or '(missing)'}/` "
+                    "in this repo. Fix the issue's 'Tool directory' field, "
+                    "then add the `retry-generate` label to try again.",
+                )
+                gh.add_label(issue, config.labels.generation_failed)
+                sys.exit(1)
+            logger.info("Updating tools/%s from plan on issue #%d", tool_dir, issue)
+            try:
+                generated, result, validation = update_tool(
+                    description=update_request.description,
+                    links=update_request.links,
+                    plan_markdown=plan_md,
+                    config=config,
+                    api_key=api_key,
+                    src_tool_dir=src_tool_dir,
+                    output_dir=Path(output_dir),
+                    tool_dir_name=tool_dir,
+                    max_iterations_override=max_iterations,
+                    max_validation_retries_override=max_retries,
+                )
+            except Exception as exc:
+                logger.exception("Tool update failed")
+                gh.add_comment(
+                    issue,
+                    f"⚠️ Tool update failed: {exc}\n\nAdd the `retry-generate` label to try again.",
+                )
+                gh.add_label(issue, config.labels.generation_failed)
+                sys.exit(2)
+            generated.tool_dir = tool_dir
         else:
-            tool_dir = "unknown"
-            for f in generated.files:
-                if f.path.endswith(".xml") and "macros" not in f.path.lower():
-                    tool_dir = Path(f.path).stem
-                    break
-            if tool_dir == "unknown":
-                tool_dir = re.sub(r'[^a-z0-9]+', '_', request.tool_name.lower()).strip('_') or "unknown"
+            request = parse_issue_body(issue_data.body)
+            logger.info("Generating tool from plan on issue #%d", issue)
+            try:
+                generated, result, validation = generate_tool(
+                    plan_md, config, api_key, Path(output_dir),
+                    max_iterations_override=max_iterations,
+                    max_validation_retries_override=max_retries,
+                )
+            except Exception as exc:
+                logger.exception("Tool generation failed")
+                gh.add_comment(issue, f"⚠️ Tool generation failed: {exc}\n\nAdd the `retry-generate` label to try again.")
+                gh.add_label(issue, config.labels.generation_failed)
+                sys.exit(2)
+
+            # Derive tool dir name: prefer agent's explicit choice, then XML filename, then issue body
+            if generated.tool_dir:
+                tool_dir = generated.tool_dir
+            else:
+                tool_dir = "unknown"
+                for f in generated.files:
+                    if f.path.endswith(".xml") and "macros" not in f.path.lower():
+                        tool_dir = Path(f.path).stem
+                        break
+                if tool_dir == "unknown":
+                    tool_dir = re.sub(r'[^a-z0-9]+', '_', request.tool_name.lower()).strip('_') or "unknown"
         (Path(output_dir) / ".tool-name").write_text(tool_dir)
+        if is_update:
+            # Marker for the workflow so it can word the PR title/commit
+            # as an update rather than a generation.
+            _ws = os.environ.get("GITHUB_WORKSPACE", str(Path(output_dir).parent))
+            Path(_ws, ".is-update").write_text("1")
 
         if generated.give_up_reason:
             gh.add_comment(
                 issue,
-                f"⚠️ Tool generation could not be completed. The agent reported:\n\n> {generated.give_up_reason}\n\n"
+                f"⚠️ Tool {verb} could not be completed. The agent reported:\n\n"
+                f"> {generated.give_up_reason}\n\n"
                 "A maintainer review is needed. Add the `retry-generate` label to try again.",
             )
             gh.add_label(issue, config.labels.generation_failed)
@@ -204,7 +278,11 @@ def generate(issue: int, config_path: str, output_dir: str, actor: str | None, c
         validation_errors: list[str] | None = None
         if not validation.valid:
             validation_errors = validation.errors
-            error_msg = "⚠️ Generation completed but validation found errors. A PR will still be created — use the `address-feedback` label to have the bot fix these:\n\n"
+            error_msg = (
+                f"⚠️ {'Update' if is_update else 'Generation'} completed but validation "
+                "found errors. A PR will still be created — use the `address-feedback` "
+                "label to have the bot fix these:\n\n"
+            )
             for err in validation.errors:
                 error_msg += f"- {err}\n"
             error_msg += f"\nFiles generated: {len(generated.files)}"
@@ -215,7 +293,10 @@ def generate(issue: int, config_path: str, output_dir: str, actor: str | None, c
             Path(_ws, ".validation-failed").write_text("\n".join(validation_errors))
 
         # Post summary comment
-        summary = f"📦 Tool files generated ({len(generated.files)}):\n\n"
+        summary = (
+            f"📦 Tool files {'updated' if is_update else 'generated'} "
+            f"({len(generated.files)}):\n\n"
+        )
         for f in generated.files:
             summary += f"- `{f.path}` ({len(f.content)} bytes)\n"
         summary += f"\n{generated.summary}\n"
@@ -230,7 +311,7 @@ def generate(issue: int, config_path: str, output_dir: str, actor: str | None, c
                 commit_msg, pr_body = generate_commit_message(
                     client, config,
                     context={
-                        "mode": "generate",
+                        "mode": verb,
                         "tool_name": tool_dir,
                         "issue_or_pr_number": issue,
                         "summary": generated.summary,
@@ -249,7 +330,10 @@ def generate(issue: int, config_path: str, output_dir: str, actor: str | None, c
             except Exception as e:
                 logger.warning("Failed to generate commit message/PR body: %s", e)
                 if pr_body_path:
-                    fallback_body = f"Generated by gxy-tool-bot for issue #{issue}"
+                    fallback_body = (
+                        f"{'Updated' if is_update else 'Generated'} by gxy-tool-bot "
+                        f"for issue #{issue}"
+                    )
                     if validation_errors:
                         fallback_body += "\n\n---\n\n## ⚠️ Validation Issues\n\nThe following validation issues were found and should be addressed (use the `address-feedback` label to trigger fixes):\n\n"
                         for err in validation_errors:
@@ -257,7 +341,10 @@ def generate(issue: int, config_path: str, output_dir: str, actor: str | None, c
                     fallback_body += _contributing_section(issue, tool_dir, config.repo)
                     Path(pr_body_path).write_text(fallback_body)
 
-    click.echo(f"Generated {len(generated.files)} files in {output_dir}")
+    click.echo(
+        f"{'Updated' if is_update else 'Generated'} {len(generated.files)} "
+        f"files in {output_dir}"
+    )
 
 
 @cli.command(name="address-feedback")

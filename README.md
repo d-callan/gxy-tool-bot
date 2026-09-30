@@ -19,6 +19,8 @@ This repository is under active development. The bot can plan tool wrappers, gen
 3. **Review:** A maintainer reviews the plan and adds the `ready-to-implement` label.
 4. **Generate:** An agent generates the tool XML, macros, and test data, then opens a PR with a `pr-opened` label on the issue. If the agent gives up or crashes, a `generation-failed` label is applied instead. If generation completes but validation finds issues, the PR is still created with the validation errors noted in the description — apply the `address-feedback` label to have the bot attempt fixes.
 
+**Updating existing tools** follows the same plan → `ready-to-implement` → PR flow: a user files a "Tool Update" issue (auto-labeled `tool-update`) naming the tool directory and what to change, the bot posts an update plan, a maintainer approves, and the bot stages the existing `tools/<dir>` into its workspace, applies the plan, and opens a PR.
+
 ## Setup (for consuming repos)
 
 ### 1. Install the bot
@@ -91,6 +93,7 @@ Create these labels in the repo (Settings → Labels):
 | Label | Color | Purpose |
 |-------|-------|---------|
 | `tool-request` | `#0075ca` | Applied automatically by issue template; triggers planning |
+| `tool-update` | `#0075ca` | Applied automatically by the Tool Update issue template; triggers update planning |
 | `plan-ready` | `#a2eeef` | Applied by bot after plan is posted |
 | `ready-to-implement` | `#0e8a16` | Applied by maintainer to approve plan; triggers generation |
 | `pr-opened` | `#1d76db` | Applied by bot after PR is created |
@@ -100,15 +103,18 @@ Create these labels in the repo (Settings → Labels):
 | `address-feedback` | `#5319e7` | Applied to a PR to have the bot address review comments and CI failures |
 | `review` | `#bfd4f2` | Applied to a PR to have the bot review tool files and post findings |
 
-### 4. Add the issue template
+### 4. Add the issue templates
 
-Copy `examples/issue-template-tool-request.yml` from this repo into your repo's `.github/ISSUE_TEMPLATE/tool-request.yml`. The template auto-applies the `tool-request` label so the planning workflow triggers automatically.
+Copy the templates from `examples/` in this repo into your repo's `.github/ISSUE_TEMPLATE/`:
+
+- `issue-template-tool-request.yml` → `tool-request.yml` — auto-applies `tool-request`, triggers planning
+- `issue-template-tool-update.yml` → `tool-update.yml` — auto-applies `tool-update`, triggers update planning
 
 ### 5. Add workflow files
 
 Copy the workflow templates from the [`workflows/`](workflows/) directory in this repo into your repo's `.github/workflows/`:
 
-- **`on-tool-request.yml`** → `.github/workflows/gxy-on-tool-request.yml` — triggers on new issues with `tool-request` label or when `retry-plan` label is added; runs the planner
+- **`on-tool-request.yml`** → `.github/workflows/gxy-on-tool-request.yml` — triggers on new issues with `tool-request` or `tool-update` label or when `retry-plan` label is added; runs the planner (auto-detects update issues)
 - **`on-ready-to-implement.yml`** → `.github/workflows/gxy-on-ready-to-implement.yml` — triggers when `ready-to-implement` or `retry-generate` label is added; runs the generator and opens a PR
 - **`on-pr-feedback.yml`** → `.github/workflows/gxy-on-pr-feedback.yml` — triggers when `address-feedback` label is added to a PR; reads review comments and CI failures, pushes fixes as new commits
 - **`on-pr-review.yml`** → `.github/workflows/gxy-on-pr-review.yml` — triggers when `review` label is added to a PR; reviews tool files and posts structured findings as a comment
@@ -238,7 +244,7 @@ gxy-tool-bot eval --config .gxy-tool-bot.yml --cases eval/cases/ --filter name=f
 gxy-tool-bot eval --config .gxy-tool-bot.yml --cases eval/cases/ --no-planemo
 ```
 
-The `--filter` option can be repeated to combine filters (different keys are AND'd, same key is OR'd). Supported keys: `name` (glob pattern), `type` (`generate` or `feedback`), `difficulty` (`easy`, `medium`, `hard`).
+The `--filter` option can be repeated to combine filters (different keys are AND'd, same key is OR'd). Supported keys: `name` (glob pattern), `type` (`generate`, `feedback`, or `update`), `difficulty` (`easy`, `medium`, `hard`).
 
 Results are printed as a table to stdout and optionally written as JSON to `--output`.
 
@@ -252,6 +258,7 @@ Cases live in `eval/cases/<case_name>/` directories, each with a `case.yml` and 
 
 - **Generate cases:** a `plan.md` fed to the generation pipeline, plus assertions on the output files.
 - **Feedback cases:** "broken" tool files representing the PR state, plus simulated reviewer comments and CI failures, plus assertions on the expected fixes.
+- **Update cases:** `type: update` — existing tool files plus a `plan.md` and an `update:` block (description, links) simulating the approved update plan; assertions check the updated files.
 
 Cases are tiered by difficulty:
 - **easy:** Cases the bot should consistently ace (simple tools, obvious fixes). Baseline for regression detection.
