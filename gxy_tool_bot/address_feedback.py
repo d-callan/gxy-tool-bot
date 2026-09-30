@@ -20,7 +20,7 @@ from gxy_tool_bot.generator import (
 from gxy_tool_bot.validation import ValidationResult, run_agent_with_validation
 from gxy_tool_bot.github_client import Comment, GitHubClient
 from gxy_tool_bot.planemo_utils import summarize_test_json
-from gxy_tool_bot.utils import read_tool_files
+from gxy_tool_bot.utils import is_report_artifact, read_tool_files
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +62,8 @@ def _collect_feedback(gh: GitHubClient, pr_number: int, tool_dir: Path) -> Feedb
     # This assumes the CI workflow uploads failure artifacts in the same style as
     # the IUC tools-iuc repo (e.g. 'Tool linting output', 'Python linting output',
     # 'R linting output', 'All tool test results', 'Tool test output N').
+    # Anything not matching is_report_artifact is skipped, so binary bundles
+    # like 'gitignored-test-data' are never downloaded.
     # If the CI workflow behavior changes or a different repo uses different
     # artifact naming conventions, this may not pick up CI failure info.
     ci_artifacts: dict[str, str] = {}
@@ -75,7 +77,7 @@ def _collect_feedback(gh: GitHubClient, pr_number: int, tool_dir: Path) -> Feedb
         for artifact in artifacts:
             name = artifact["name"]
             # Only download artifacts that look like CI reports
-            if not any(kw in name.lower() for kw in ("lint", "test", "python", "r lint", "file size")):
+            if not is_report_artifact(name):
                 continue
             # Skip per-chunk test artifacts if combined results are available
             if has_combined and name.startswith("Tool test output "):

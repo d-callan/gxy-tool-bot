@@ -38,6 +38,18 @@ def sanitized_env(extra_names: set[str] | None = None) -> dict[str, str]:
     }
 
 
+# CI report artifact names (lowercase substring match). Keep to names CI
+# actually produces — a bare "test" keyword also matched e.g.
+# 'gitignored-test-data', a binary zip of test files whose contents then got
+# dumped into the prompt.
+_ARTIFACT_NAME_KEYWORDS = ("lint", "test result", "tool test output", "file size")
+
+
+def is_report_artifact(name: str) -> bool:
+    """Whether a GitHub Actions artifact looks like a CI report worth downloading."""
+    return any(kw in name.lower() for kw in _ARTIFACT_NAME_KEYWORDS)
+
+
 def read_tool_files(tool_dir: Path) -> dict[str, str]:
     """Read all files from a tool directory, returning relative path -> content.
 
