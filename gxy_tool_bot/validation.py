@@ -99,18 +99,44 @@ def validate_generated_files(files: list[GeneratedFile]) -> ValidationResult:
         tests_elem = root.find(".//tests")
         if tests_elem is None:
             continue
+        # Map input param name -> declared type so each test param can be
+        # checked against what it feeds. iter() covers params nested inside
+        # conditional/repeat/section blocks in <inputs>.
+        input_types: dict[str, str] = {}
+        inputs_elem = root.find(".//inputs")
+        if inputs_elem is not None:
+            for iparam in inputs_elem.iter("param"):
+                pname = iparam.get("name") or iparam.get("argument")
+                if pname and iparam.get("type"):
+                    input_types[pname] = iparam.get("type")
         for test in tests_elem.findall("test"):
-            for param in test.findall("param"):
+            # iter() covers params nested in <conditional>/<repeat> test blocks
+            for param in test.iter("param"):
                 raw_value = param.get("value", "")
                 if not raw_value or raw_value.startswith("${"):
                     continue
+                ptype = input_types.get(param.get("name") or "")
                 # Galaxy allows comma-separated file references in param values
                 for fname in raw_value.split(","):
                     fname = fname.strip()
                     if not fname:
                         continue
-                    # Check if it looks like a file reference
-                    if "." in fname and "/" not in fname:
+                    if ptype in ("data", "data_collection"):
+                        is_file_ref = True
+                    elif ptype is not None:
+                        # Declared non-data input — scalars like 0.5 or "hg19.1"
+                        # are values, not file references.
+                        is_file_ref = False
+                    elif "." not in fname or "/" in fname:
+                        # Unresolved name — fall back to the filename heuristic
+                        is_file_ref = False
+                    else:
+                        try:
+                            float(fname)
+                            is_file_ref = False
+                        except ValueError:
+                            is_file_ref = True
+                    if is_file_ref:
                         expected = f"test-data/{fname}"
                         if expected not in file_paths:
                             errors.append(f"Test data file '{expected}' referenced in {path} but not generated")
