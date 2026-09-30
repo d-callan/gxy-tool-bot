@@ -120,6 +120,12 @@ updates the scaling counts tool XMLs in the existing dir
 (`count_tool_xmls_in_dir`) instead of the plan. The only new config key is
 `labels.tool_update` (default `tool-update`).
 
+Note: `labels.*` config only affects CLI-side detection — GitHub Actions
+evaluates issue labels before the CLI runs, so the workflow `if:`
+predicates hard-code the default label names (`tool-request`,
+`tool-update`). Renaming a label in `.gxy-tool-bot.yml` means updating the
+matching predicate in `on-tool-request.yml` (and the issue template) too.
+
 ## Running Tests
 
 ```bash
