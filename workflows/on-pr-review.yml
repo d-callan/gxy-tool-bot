@@ -11,8 +11,11 @@ jobs:
       contents: read
       pull-requests: write
       issues: write
+      actions: read
+      checks: read
+    # Shared group with on-pr-feedback — see that file's note.
     concurrency:
-      group: review-${{ github.event.pull_request.number }}
+      group: pr-${{ github.event.pull_request.number }}
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4

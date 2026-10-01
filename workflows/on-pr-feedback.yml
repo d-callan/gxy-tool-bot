@@ -28,8 +28,11 @@ jobs:
       pull-requests: write
       issues: write
       actions: read
+      checks: read
+    # Shared group with on-pr-review: a review run must wait for a feedback
+    # run to finish pushing, or it reports findings on superseded files.
     concurrency:
-      group: feedback-${{ github.event.pull_request.number || inputs.pr_number }}
+      group: pr-${{ github.event.pull_request.number || inputs.pr_number }}
       cancel-in-progress: false
     env:
       PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
