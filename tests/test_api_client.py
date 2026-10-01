@@ -313,3 +313,41 @@ def test_chat_raises_on_non_transient_http_error() -> None:
         with pytest.raises(httpx.HTTPStatusError):
             client.chat([{"role": "user", "content": "hi"}])
     client.close()
+
+
+def test_chat_retries_on_429() -> None:
+    """429 rate limits are transient — should retry and recover."""
+    client = _make_client()
+    rate_limited = httpx.Response(
+        429,
+        content=b'{"error": "rate limited"}',
+        request=httpx.Request("POST", "https://api.example.com/chat/completions"),
+    )
+    good_resp = _mock_response({
+        "choices": [{
+            "message": {"content": "recovered"},
+            "finish_reason": "stop",
+        }],
+    })
+    with patch.object(client._client, "post", side_effect=[rate_limited, good_resp]):
+        with patch("time.sleep"):
+            result = client.chat([{"role": "user", "content": "hi"}])
+    assert result.content == "recovered"
+    client.close()
+
+
+def test_chat_retries_on_connect_timeout() -> None:
+    """ConnectTimeout (and other transport errors) should retry like ReadTimeout."""
+    client = _make_client()
+    good_resp = _mock_response({
+        "choices": [{
+            "message": {"content": "recovered"},
+            "finish_reason": "stop",
+        }],
+    })
+    with patch.object(client._client, "post",
+                      side_effect=[httpx.ConnectTimeout("connect timed out"), good_resp]):
+        with patch("time.sleep"):
+            result = client.chat([{"role": "user", "content": "hi"}])
+    assert result.content == "recovered"
+    client.close()

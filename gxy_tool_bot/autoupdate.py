@@ -15,13 +15,11 @@ Dedup rules are modeled on planemo-autoupdate:
 
 from __future__ import annotations
 
-import datetime
 import logging
 import re
 import subprocess
 import time
 from dataclasses import dataclass, field
-from email.utils import parsedate_to_datetime
 from pathlib import Path
 
 import httpx
@@ -29,6 +27,7 @@ import yaml
 
 from gxy_tool_bot.address_feedback import update_tool
 from gxy_tool_bot.config import BotConfig
+from gxy_tool_bot.retry import retry_delay
 
 logger = logging.getLogger(__name__)
 
@@ -184,34 +183,6 @@ _VERSION_ALLOWED_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+~!\-]{0,127}$")
 # The anaconda API occasionally blips, and one timeout shouldn't kill a
 # whole-repo detect run.
 _PACKAGE_API_ATTEMPTS = 3
-# Retry-After is honored but capped so a misbehaving server can't stall a
-# detect run for hours.
-_MAX_RETRY_DELAY = 120.0
-
-
-def _retry_after_seconds(value: str) -> float | None:
-    """Parse a Retry-After value: delta-seconds, or an HTTP-date (rarely
-    used but legal). Returns seconds to wait, or None if unparseable."""
-    try:
-        return float(value)
-    except ValueError:
-        pass
-    try:
-        until = parsedate_to_datetime(value)
-    except (TypeError, ValueError):
-        return None
-    seconds = (until - datetime.datetime.now(datetime.timezone.utc)).total_seconds()
-    return max(seconds, 0.0)
-
-
-def _retry_delay(resp: httpx.Response | None, attempt: int) -> float:
-    delay = 2.0 * (attempt + 1)
-    retry_after = resp.headers.get("Retry-After") if resp is not None else None
-    if retry_after:
-        seconds = _retry_after_seconds(retry_after)
-        if seconds is not None:
-            delay = max(delay, min(seconds, _MAX_RETRY_DELAY))
-    return delay
 
 
 def _get_package_response(client: httpx.Client, url: str) -> httpx.Response:
@@ -232,7 +203,7 @@ def _get_package_response(client: httpx.Client, url: str) -> httpx.Response:
                 "anaconda.org returned %s for %s — retrying",
                 resp.status_code, url,
             )
-        time.sleep(_retry_delay(resp, attempt))
+        time.sleep(retry_delay(resp, attempt))
     return resp
 
 

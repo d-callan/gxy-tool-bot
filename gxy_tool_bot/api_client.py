@@ -9,6 +9,8 @@ from dataclasses import dataclass
 
 import httpx
 
+from gxy_tool_bot.retry import retry_delay
+
 logger = logging.getLogger(__name__)
 
 # Timeout defaults: 30s connect, 600s read (large completions can be slow on some endpoints).
@@ -79,18 +81,18 @@ class ApiClient:
                     headers={"Authorization": f"Bearer {self.api_key}"},
                 )
                 resp.raise_for_status()
-            except (httpx.ReadTimeout, httpx.ConnectError) as e:
+            except httpx.TransportError as e:
                 logger.warning("API error with model %s (attempt %d/%d): %s", model_used, attempt + 1, max_retries, e)
                 if attempt < max_retries - 1:
-                    time.sleep(5)
+                    time.sleep(retry_delay(None, attempt, base=5.0))
                     continue
                 raise
             except httpx.HTTPStatusError as e:
-                if resp.status_code in (502, 503, 504):
+                if resp.status_code == 429 or resp.status_code >= 500:
                     logger.warning("API server error %d with model %s (attempt %d/%d): %s",
                                    resp.status_code, model_used, attempt + 1, max_retries, e)
                     if attempt < max_retries - 1:
-                        time.sleep(5)
+                        time.sleep(retry_delay(resp, attempt, base=5.0))
                         continue
                     raise
                 raise

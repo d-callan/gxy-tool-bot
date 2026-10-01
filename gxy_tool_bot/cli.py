@@ -288,6 +288,10 @@ def generate(issue: int, config_path: str, output_dir: str, actor: str | None, c
             )
             gh.add_label(issue, config.labels.generation_failed)
             click.echo(f"Agent gave up: {generated.give_up_reason}", err=True)
+            # Marker for the workflow: the reason comment is already posted,
+            # so its generic failure step should stay quiet.
+            _ws = os.environ.get("GITHUB_WORKSPACE", str(Path(output_dir).parent))
+            Path(_ws, ".gave-up").write_text("1")
             sys.exit(3)
 
         validation_errors: list[str] | None = None
@@ -563,6 +567,8 @@ def address_feedback_cmd(pr_number: int, config_path: str, tool_dir: str, actor:
                 "A maintainer review is needed.",
             )
             click.echo(f"Agent gave up: {generated.give_up_reason}", err=True)
+            _ws = os.environ.get("GITHUB_WORKSPACE", ".")
+            Path(_ws, ".gave-up").write_text("1")
             sys.exit(3)
 
         validation_errors: list[str] | None = None

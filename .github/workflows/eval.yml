@@ -82,6 +82,5 @@ jobs:
                   if v.get('count', 0) > 0:
                       print(f\"    {k}: {v['pass_rate'] * 100:.1f}% ({v['count']} cases)\")
           ")
-            fi
             echo "$SUMMARY"
           fi

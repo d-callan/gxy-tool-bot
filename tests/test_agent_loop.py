@@ -676,3 +676,97 @@ def test_repeated_fetch_url_nudge() -> None:
     user_msgs = [m for m in result.messages if m.get("role") == "user"]
     nudge_msgs = [m for m in user_msgs if "times in a row" in m.get("content", "")]
     assert len(nudge_msgs) == 1, f"Expected 1 nudge message, got {len(nudge_msgs)}"
+
+
+def test_agent_loop_give_up_terminates_loop() -> None:
+    """A give_up result should end the loop — no further chat call."""
+    client = MagicMock()
+    client.chat.side_effect = [
+        ChatResponse(
+            content=None,
+            tool_calls=[_make_tool_call("call_1", "give_up", {"reason": "can't find the tool"})],
+            finish_reason="tool_calls",
+        ),
+        ChatResponse(
+            content="Should never be requested.",
+            tool_calls=None,
+            finish_reason="stop",
+        ),
+    ]
+
+    tools = [
+        ToolDefinition(
+            name="give_up",
+            description="Give up",
+            parameters={"type": "object", "properties": {}},
+            handler=lambda args: f"Gave up: {args.get('reason', '')}",
+        ),
+    ]
+
+    result = run_agent_loop(
+        client=client,
+        system_prompt="sys",
+        user_prompt="user",
+        tools=tools,
+        max_iterations=5,
+    )
+
+    assert client.chat.call_count == 1
+    assert result.terminated_naturally is True
+    assert result.content.startswith("Gave up:")
+
+
+def test_agent_loop_continues_on_truncated_final_answer() -> None:
+    """finish_reason='length' with no tool calls should nudge, not terminate."""
+    client = MagicMock()
+    client.chat.side_effect = [
+        ChatResponse(content="Here is half an answ", tool_calls=None, finish_reason="length"),
+        ChatResponse(content="Full answer.", tool_calls=None, finish_reason="stop"),
+    ]
+
+    result = run_agent_loop(
+        client=client,
+        system_prompt="sys",
+        user_prompt="user",
+        tools=[],
+        max_iterations=5,
+    )
+
+    assert result.content == "Full answer."
+    assert result.iterations == 2
+    user_msgs = [m for m in result.messages if m.get("role") == "user"]
+    assert any("output length limit" in m.get("content", "") for m in user_msgs)
+
+
+def test_agent_loop_nudges_on_truncated_tool_response() -> None:
+    """finish_reason='length' with tool calls should still run them, then nudge."""
+    client = MagicMock()
+    client.chat.side_effect = [
+        ChatResponse(
+            content=None,
+            tool_calls=[_make_tool_call("call_1", "search", {"q": "x"})],
+            finish_reason="length",
+        ),
+        ChatResponse(content="Done.", tool_calls=None, finish_reason="stop"),
+    ]
+
+    tools = [
+        ToolDefinition(
+            name="search",
+            description="Search",
+            parameters={"type": "object", "properties": {}},
+            handler=lambda args: "results",
+        ),
+    ]
+
+    result = run_agent_loop(
+        client=client,
+        system_prompt="sys",
+        user_prompt="user",
+        tools=tools,
+        max_iterations=5,
+    )
+
+    assert result.tool_call_trace[0]["result"] == "results"
+    user_msgs = [m for m in result.messages if m.get("role") == "user"]
+    assert any("incomplete arguments" in m.get("content", "") for m in user_msgs)

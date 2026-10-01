@@ -329,11 +329,38 @@ def run_agent_loop(
                     final_content = result
                     terminated_naturally = True
                     break
+
+            if terminated_naturally:
+                break
+            if response.finish_reason == "length":
+                # The response hit the model's output limit mid-generation —
+                # the last tool call's arguments may be incomplete. Give the
+                # agent a clear signal instead of a confusing args error.
+                messages.append({
+                    "role": "user",
+                    "content": (
+                        "Your previous response was cut off by the model's output length "
+                        "limit — the last tool call may have incomplete arguments. "
+                        "Retry it with smaller content (e.g. write files in smaller pieces)."
+                    ),
+                })
         else:
-            # No tool calls — this is the final answer
-            final_content = response.content or ""
-            terminated_naturally = True
-            break
+            # No tool calls — this is the final answer, unless the model's
+            # output limit cut it off mid-response, in which case let the
+            # agent finish rather than returning truncated content.
+            if response.finish_reason == "length":
+                messages.append({"role": "assistant", "content": response.content or ""})
+                messages.append({
+                    "role": "user",
+                    "content": (
+                        "Your previous reply was cut off by the model's output length limit. "
+                        "Finish now — keep the rest brief."
+                    ),
+                })
+            else:
+                final_content = response.content or ""
+                terminated_naturally = True
+                break
 
     if not terminated_naturally:
         final_content = (

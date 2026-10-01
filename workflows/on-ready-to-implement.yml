@@ -167,6 +167,7 @@ jobs:
               --base "$DEFAULT_BRANCH" \
               --title "$PR_TITLE" \
               --body "$PR_BODY"
+            PR_NUMBER=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number' 2>/dev/null || echo "")
             gh issue comment $ISSUE_NUMBER --body "✅ Tool generated successfully — PR #$PR_NUMBER is ready for review."
           fi
           gh issue edit $ISSUE_NUMBER --add-label "pr-opened"
@@ -208,8 +209,14 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh issue comment $ISSUE_NUMBER --body "⚠️ Tool generation failed. Check the [workflow logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details. Add the \`retry-generate\` label to try again."
-          gh issue edit $ISSUE_NUMBER --add-label "generation-failed"
+          if [ -f "$GITHUB_WORKSPACE/.gave-up" ]; then
+            # The CLI already posted the agent's give-up reason and applied
+            # the label — don't post a second, contradictory comment.
+            rm -f "$GITHUB_WORKSPACE/.gave-up"
+          else
+            gh issue comment $ISSUE_NUMBER --body "⚠️ Tool generation failed. Check the [workflow logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details. Add the \`retry-generate\` label to try again."
+            gh issue edit $ISSUE_NUMBER --add-label "generation-failed"
+          fi
       - name: Handle PR creation failure
         if: steps.create_pr.outcome == 'failure'
         env:
