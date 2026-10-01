@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 import re
 import subprocess
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -178,6 +179,35 @@ def is_newer(latest: str, current: str) -> bool:
 _VERSION_ALLOWED_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+~!\-]{0,127}$")
 
 
+# Status codes worth retrying — the anaconda API occasionally blips, and
+# one timeout shouldn't kill a whole-repo detect run.
+_TRANSIENT_STATUS = frozenset({429, 500, 502, 503, 504})
+_PACKAGE_API_ATTEMPTS = 3
+
+
+def _get_package_response(client: httpx.Client, url: str) -> httpx.Response:
+    """GET ``url``, retrying transient transport errors and 5xx/429 responses."""
+    resp: httpx.Response | None = None
+    for attempt in range(_PACKAGE_API_ATTEMPTS):
+        try:
+            resp = client.get(url)
+        except httpx.TransportError:
+            if attempt == _PACKAGE_API_ATTEMPTS - 1:
+                raise
+            logger.warning("Transient error fetching %s — retrying", url)
+        else:
+            if resp.status_code not in _TRANSIENT_STATUS:
+                return resp
+            if attempt == _PACKAGE_API_ATTEMPTS - 1:
+                return resp
+            logger.warning(
+                "anaconda.org returned %s for %s — retrying",
+                resp.status_code, url,
+            )
+        time.sleep(2 * (attempt + 1))
+    return resp
+
+
 def latest_package_version(
     package: str,
     channels: list[str],
@@ -187,7 +217,9 @@ def latest_package_version(
     best_version: str | None = None
     best_channel: str | None = None
     for channel in channels:
-        resp = client.get(ANACONDA_PACKAGE_API.format(channel=channel, package=package))
+        resp = _get_package_response(
+            client, ANACONDA_PACKAGE_API.format(channel=channel, package=package)
+        )
         if resp.status_code == 404:
             continue
         resp.raise_for_status()
