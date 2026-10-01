@@ -15,11 +15,13 @@ Dedup rules are modeled on planemo-autoupdate:
 
 from __future__ import annotations
 
+import datetime
 import logging
 import re
 import subprocess
 import time
 from dataclasses import dataclass, field
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 
 import httpx
@@ -187,14 +189,28 @@ _PACKAGE_API_ATTEMPTS = 3
 _MAX_RETRY_DELAY = 120.0
 
 
+def _retry_after_seconds(value: str) -> float | None:
+    """Parse a Retry-After value: delta-seconds, or an HTTP-date (rarely
+    used but legal). Returns seconds to wait, or None if unparseable."""
+    try:
+        return float(value)
+    except ValueError:
+        pass
+    try:
+        until = parsedate_to_datetime(value)
+    except (TypeError, ValueError):
+        return None
+    seconds = (until - datetime.datetime.now(datetime.timezone.utc)).total_seconds()
+    return max(seconds, 0.0)
+
+
 def _retry_delay(resp: httpx.Response | None, attempt: int) -> float:
     delay = 2.0 * (attempt + 1)
     retry_after = resp.headers.get("Retry-After") if resp is not None else None
     if retry_after:
-        try:
-            delay = max(delay, min(float(retry_after), _MAX_RETRY_DELAY))
-        except ValueError:
-            pass
+        seconds = _retry_after_seconds(retry_after)
+        if seconds is not None:
+            delay = max(delay, min(seconds, _MAX_RETRY_DELAY))
     return delay
 
 

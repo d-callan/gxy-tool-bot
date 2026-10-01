@@ -3,6 +3,8 @@ and the autoupdate plan/PR text builders."""
 
 from __future__ import annotations
 
+import datetime
+from email.utils import format_datetime
 from pathlib import Path
 
 import httpx
@@ -303,6 +305,22 @@ def test_retry_delay_honors_retry_after() -> None:
 def test_retry_delay_caps_retry_after() -> None:
     resp = _Resp(429, {}, headers={"retry-after": "9999"})
     assert au._retry_delay(resp, 0) == 120.0
+
+
+def test_retry_delay_parses_http_date() -> None:
+    until = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=60)
+    resp = _Resp(429, {}, headers={"retry-after": format_datetime(until)})
+    assert 50 < au._retry_delay(resp, 0) <= 60
+
+
+def test_retry_delay_ignores_past_http_date() -> None:
+    resp = _Resp(429, {}, headers={"retry-after": "Wed, 21 Oct 2015 07:28:00 GMT"})
+    assert au._retry_delay(resp, 0) == 2.0
+
+
+def test_retry_delay_ignores_garbage() -> None:
+    resp = _Resp(429, {}, headers={"retry-after": "soon"})
+    assert au._retry_delay(resp, 0) == 2.0
 
 
 def test_check_tool_dir_outdated(tmp_path) -> None:
