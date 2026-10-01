@@ -12,6 +12,8 @@ conventions, validation checks, or prompt changes.
 | `gxy_tool_bot/templates/generator_system.txt` | Generation flow | System prompt — tells the agent how to write Galaxy tool XML, IUC conventions, available tools |
 | `gxy_tool_bot/templates/generator_user.txt` | Generation flow | User prompt — contains the plan, exemplar tools, and instructions |
 | `gxy_tool_bot/templates/feedback_system.txt` | Feedback flow | System prompt — tells the agent how to fix existing tools based on CI/reviewer feedback |
+| `gxy_tool_bot/templates/update_planner_system.txt` / `update_planner_user.txt` | Update flow (plan) | Update-plan prompts — agent inspects the existing wrapper and drafts a maintainer-reviewable plan |
+| `gxy_tool_bot/templates/update_system.txt` | Update flow (implement) | System prompt — tells the agent to implement an approved update plan on the staged tool dir |
 | `gxy_tool_bot/templates/review_system.txt` | Review flow | System prompt — tells the review agent how to review tool files, what categories to check, and how to format findings |
 | `gxy_tool_bot/templates/_conventions.txt` | All flows | Shared IUC conventions included via Jinja2 `{% include %}` in all system prompts. Update this file once to change a convention everywhere. |
 | `gxy_tool_bot/address_feedback.py` (`_build_feedback_user_prompt`) | Feedback flow | User prompt — built dynamically from PR comments, CI artifacts, and file listing |
@@ -22,7 +24,7 @@ conventions, validation checks, or prompt changes.
 |------|---------|
 | `gxy_tool_bot/validation.py` | `ValidationResult`, `validate_generated_files`, and `run_agent_with_validation` — all validation logic lives here |
 | `gxy_tool_bot/generator.py` | `FileWriter`, `GeneratedFile`, `GeneratedTool`, tool definitions, and the `generate_tool` entry point |
-| `gxy_tool_bot/address_feedback.py` | Feedback collection, prompt building, and the `address_feedback` entry point |
+| `gxy_tool_bot/address_feedback.py` | Feedback collection, prompt building, `address_feedback` and `update_tool` entry points, and `_run_edit_agent` — the shared agent+validation tail both flows use |
 | `gxy_tool_bot/review.py` | Review module — `ReviewFinding`, `ReviewResult`, `collect_review_context`, `run_review`, `parse_findings`, `run_integrated_review`. Used by both standalone review and integrated self-review. |
 | `gxy_tool_bot/utils.py` | Shared helpers — `read_tool_files` (used by feedback and review flows) |
 
@@ -97,6 +99,33 @@ The feedback user prompt is built dynamically in `_build_feedback_user_prompt`
 in `gxy_tool_bot/address_feedback.py`. The system prompt is in
 `templates/feedback_system.txt`.
 
+### The update flow
+
+A `tool-update` issue label routes the issue through the existing `plan` and
+`generate` CLI commands, which detect the label and branch internally — no
+extra workflows or CLI commands. `plan` calls `generate_update_plan`
+(`gxy_tool_bot/planner.py`) which parses the issue with
+`parse_update_issue_body` (handles GitHub issue-form `### Heading` output),
+inlines the current wrapper files, and posts a plan under the same
+`PLAN_MARKER` comment as new-tool plans. `generate` calls `update_tool`
+(`gxy_tool_bot/address_feedback.py`), which stages `tools/<dir>` into the
+output dir verbatim (binary test data survives as real bytes) and hands off
+to `_run_edit_agent` — the shared tail also used by `address_feedback`.
+Because the staged dir lands in `generated/` and `.tool-name` names the tool,
+`on-ready-to-implement.yml` opens the PR unmodified.
+
+Budget knobs are the same as generate: `max_tool_iterations`,
+`max_validation_retries`, and `validation_retries_per_extra_tool_xml` — for
+updates the scaling counts tool XMLs in the existing dir
+(`count_tool_xmls_in_dir`) instead of the plan. The only new config key is
+`labels.tool_update` (default `tool-update`).
+
+Note: `labels.*` config only affects CLI-side detection — GitHub Actions
+evaluates issue labels before the CLI runs, so the workflow `if:`
+predicates hard-code the default label names (`tool-request`,
+`tool-update`). Renaming a label in `.gxy-tool-bot.yml` means updating the
+matching predicate in `on-tool-request.yml` (and the issue template) too.
+
 ## Running Tests
 
 ```bash
@@ -134,6 +163,7 @@ for usage details.
 
 - **Generate cases** call `generate_tool()` directly with a plan from the case fixture, then run assertions and (optionally) planemo on the output.
 - **Feedback cases** construct a `FeedbackContext` from the case YAML (simulated reviewer comments + CI failures), then call `run_agent_with_validation()` directly — no real GitHub PR needed.
+- **Update cases** (`type: update`) stage the case's `existing_files` into a `src/` dir and call `update_tool()` with the case's `plan.md` and `update.description`/`update.links` — the real production path.
 - Both paths reuse the real production code, so eval results reflect actual bot behavior.
 - The harness measures: validation pass/fail, planemo lint/test pass/fail, agent iteration count, validation retry count, and structural assertions (XML element existence, file content patterns, etc.).
 - `run_agent_with_validation` now returns a 4th value (`validation_retries: int`) — both `generate_tool` and `address_feedback` unpack it.

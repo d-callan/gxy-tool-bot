@@ -1,0 +1,20 @@
+## Update Request
+
+**Tool directory:** `tools/{{ tool_dir }}/`
+**Requested change:** {{ description }}
+{% if links %}**Links:**
+{% for link in links %}- {{ link }}
+{% endfor %}{% endif %}
+{% if contact %}**Contact:** {{ contact }}{% endif %}
+
+## Current Tool Files
+
+{{ existing_files }}
+
+## Pre-fetched Lookup Data
+
+{{ lookup_context }}
+
+---
+
+Produce an update plan following the format specified in the system prompt. Use the existing files and lookup data above. If you need more information, use the available tool functions.

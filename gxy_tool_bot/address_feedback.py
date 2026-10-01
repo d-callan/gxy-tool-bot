@@ -1,9 +1,15 @@
-"""Address feedback on an existing PR: read comments + CI failures, fix tool files."""
+"""Address feedback on an existing PR: read comments + CI failures, fix tool files.
+
+Also hosts the tool-update flow (``update_tool``): an issue requests changes to
+an existing tool in tools/<dir>/, and an approved plan is implemented by the
+same file-editing agent machinery used here.
+"""
 
 from __future__ import annotations
 
 import json
 import logging
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -23,6 +29,8 @@ from gxy_tool_bot.planemo_utils import summarize_test_json
 from gxy_tool_bot.utils import is_report_artifact, read_tool_files
 
 logger = logging.getLogger(__name__)
+
+_WRITE_TOOLS = {"write_file", "compress_file", "download_file", "track_file"}
 
 
 @dataclass
@@ -167,7 +175,10 @@ def _build_feedback_user_prompt(ctx: FeedbackContext) -> str:
 
     # Existing files — list names only, agent can read_file for contents
     parts.append("## Current Tool Files\n")
-    parts.append("The following files exist in the tool directory. Use `read_file` to read any file you need to inspect before modifying it.\n")
+    parts.append(
+        "The following files exist in the tool directory. Use `read_file` to "
+        "read any file you need to inspect before modifying it.\n"
+    )
     for path in sorted(ctx.existing_files.keys()):
         parts.append(f"- `{path}`")
     parts.append("")
@@ -245,73 +256,88 @@ def _build_feedback_user_prompt(ctx: FeedbackContext) -> str:
     return "\n".join(parts)
 
 
-def _load_existing_files(file_writer: FileWriter, tool_dir: Path, existing_files: dict[str, str]) -> None:
-    """Populate file_writer's tracked files with the real on-disk bytes.
+def _build_update_user_prompt(
+    description: str,
+    links: list[str],
+    plan_markdown: str,
+    existing_files: dict[str, str],
+    tool_dir_name: str,
+) -> str:
+    """Build the user prompt for the update flow: request + plan + file listing."""
+    parts: list[str] = []
 
-    ``existing_files`` holds display content — binary files appear as
-    placeholder strings, so tracked bytes always come from disk and nothing
-    is written back (the files are already on disk in the checked-out PR
-    branch).
-    """
-    for path in existing_files:
-        file_writer.files[path] = (tool_dir / path).read_bytes()
+    parts.append(
+        f"You are implementing an approved update to the tool in `tools/{tool_dir_name}/`. "
+        f"Only modify files in this directory. Do NOT touch any other tool's files.\n"
+        f"When using `write_file`, paths must be relative to the tool directory "
+        f"(e.g. `my_tool.xml`, not `tools/{tool_dir_name}/my_tool.xml`).\n"
+    )
+    parts.append("---\n")
+
+    parts.append("## Update Request\n")
+    parts.append(description)
+    if links:
+        parts.append("")
+        parts.append("Links provided by the requester:")
+        parts.extend(f"- {link}" for link in links)
+    parts.append("")
+    parts.append("---\n")
+
+    parts.append("## Approved Update Plan\n")
+    parts.append(plan_markdown)
+    parts.append("")
+    parts.append("---\n")
+
+    # Existing files — list names only, agent can read_file for contents
+    parts.append("## Current Tool Files\n")
+    parts.append(
+        "The following files exist in the tool directory. Use `read_file` to "
+        "read any file you need to inspect before modifying it.\n"
+    )
+    for path in sorted(existing_files.keys()):
+        parts.append(f"- `{path}`")
+    parts.append("")
+    parts.append("---\n")
+
+    parts.append(
+        f"Implement the plan above for the tool in `tools/{tool_dir_name}/`. "
+        "Use `write_file` to rewrite any files that need changes — paths are "
+        "relative to the tool directory. "
+        "Only rewrite files that need changing. Do NOT modify files for any other tool."
+    )
+
+    return "\n".join(parts)
 
 
-def address_feedback(
-    pr_number: int,
+def _run_edit_agent(
+    *,
+    tool_dir: Path,
     config: BotConfig,
     api_key: str,
-    tool_dir: Path,
-    gh: GitHubClient,
+    system_prompt: str,
+    user_prompt: str,
+    no_files_nudge: str,
+    existing_files: dict[str, str],
+    mode: str = "feedback",
+    plan_markdown: str | None = None,
     max_iterations_override: int | None = None,
     max_validation_retries_override: int | None = None,
-) -> tuple[GeneratedTool, AgentResult, ValidationResult]:
+) -> tuple[GeneratedTool, AgentResult, ValidationResult, int]:
+    """Shared tail of address_feedback and update_tool: track the tool
+    directory's existing files in a FileWriter, run the agent loop with
+    validation retries, then run integrated review if enabled.
+
+    ``existing_files`` is the display map (relative path -> text or binary
+    placeholder); tracked bytes always come from disk via
+    ``_load_existing_files`` — files are already on disk in both flows.
+    ``mode`` selects the .agent-notes section naming ("feedback" ->
+    'Feedback round N', "update" -> 'Update round N'). The fourth return
+    value is the number of validation-retry rounds the agent used.
     """
-    Address feedback on an existing PR:
-    1. Collect PR comments, review comments, CI failures, and existing files.
-    2. Run agent loop with feedback context to fix issues (with validation retries).
-    3. Validate the updated files.
-    """
-    ctx = _collect_feedback(gh, pr_number, tool_dir)
-
-    if not ctx.existing_files:
-        raise ValueError(f"No tool files found in {tool_dir}")
-
-    system_prompt = _load_template("feedback_system.txt").render()
-    user_prompt = _build_feedback_user_prompt(ctx)
-
-    if config.agent_notes:
-        user_prompt += (
-            "\n\n---\n\n## Agent Notes\n\n"
-            "If a `.agent-notes` file exists, use `read_file` to read it for context on "
-            "decisions made during generation or previous feedback rounds. "
-            "Write notes incrementally as you work — call `add_agent_notes` each time you "
-            "discover something worth noting (e.g. an upstream bug, a workaround, a failed "
-            "approach). Do NOT wait until the end, as you may run out of iterations before "
-            "you get there. Without these notes, the next feedback round starts from scratch."
-        )
-
-    # Load existing files into FileWriter so they're tracked
-    file_writer = FileWriter(tool_dir, mode="feedback", env_scrub_names={config.api.api_key_env})
-    _load_existing_files(file_writer, tool_dir, ctx.existing_files)
+    file_writer = FileWriter(tool_dir, mode=mode, env_scrub_names={config.api.api_key_env})
+    _load_existing_files(file_writer, tool_dir, existing_files)
 
     tools = _build_tool_definitions(file_writer, config)
-
-    # Track which files existed before the agent runs, so we can detect
-    # if the agent only researched without modifying anything.
-    # We check the tool call trace for write_file/compress_file/download_file
-    # calls rather than comparing file sets, since feedback mode overwrites
-    # existing files (same keys, new content).
-    _WRITE_TOOLS = {"write_file", "compress_file", "download_file", "track_file"}
-
-    no_files_nudge = (
-        "No files were modified in the previous attempt. The agent spent all iterations"
-        " on research instead of fixing the issues.\n\n"
-        "You MUST start fixing files immediately. Use `read_file` to inspect the files"
-        " you need to modify, then use `write_file` to rewrite them. Do NOT call"
-        " search_github, search_web, or fetch_url until you have fixed the identified issues.\n\n"
-        "The existing files and feedback contain everything you need. Start fixing now."
-    )
 
     with ApiClient(config.api.base_url, api_key, config.api.model, read_timeout=config.api.read_timeout, fallback_models=config.api.fallback_models) as client:
         result, files, validation, _validation_retries = run_agent_with_validation(
@@ -344,6 +370,7 @@ def address_feedback(
             tools=tools,
             no_files_nudge=no_files_nudge,
             write_tools=_WRITE_TOOLS,
+            plan_markdown=plan_markdown,
         )
 
     generated = GeneratedTool(
@@ -353,4 +380,164 @@ def address_feedback(
         give_up_reason=file_writer.give_up_reason,
     )
 
-    return generated, result, validation
+    return generated, result, validation, _validation_retries
+
+
+def _load_existing_files(file_writer: FileWriter, tool_dir: Path, existing_files: dict[str, str]) -> None:
+    """Populate file_writer's tracked files with the real on-disk bytes.
+
+    ``existing_files`` holds display content — binary files appear as
+    placeholder strings, so tracked bytes always come from disk and nothing
+    is written back (the files are already on disk in the checked-out PR
+    branch).
+    """
+    for path in existing_files:
+        file_writer.files[path] = (tool_dir / path).read_bytes()
+
+
+def address_feedback(
+    pr_number: int,
+    config: BotConfig,
+    api_key: str,
+    tool_dir: Path,
+    gh: GitHubClient,
+    max_iterations_override: int | None = None,
+    max_validation_retries_override: int | None = None,
+) -> tuple[GeneratedTool, AgentResult, ValidationResult, int]:
+    """
+    Address feedback on an existing PR:
+    1. Collect PR comments, review comments, CI failures, and existing files.
+    2. Run agent loop with feedback context to fix issues (with validation retries).
+    3. Validate the updated files.
+    """
+    ctx = _collect_feedback(gh, pr_number, tool_dir)
+
+    if not ctx.existing_files:
+        raise ValueError(f"No tool files found in {tool_dir}")
+
+    system_prompt = _load_template("feedback_system.txt").render()
+    user_prompt = _build_feedback_user_prompt(ctx)
+
+    if config.agent_notes:
+        user_prompt += (
+            "\n\n---\n\n## Agent Notes\n\n"
+            "If a `.agent-notes` file exists, use `read_file` to read it for context on "
+            "decisions made during generation or previous feedback rounds. "
+            "Write notes incrementally as you work — call `add_agent_notes` each time you "
+            "discover something worth noting (e.g. an upstream bug, a workaround, a failed "
+            "approach). Do NOT wait until the end, as you may run out of iterations before "
+            "you get there. Without these notes, the next feedback round starts from scratch."
+        )
+
+    no_files_nudge = (
+        "No files were modified in the previous attempt. The agent spent all iterations"
+        " on research instead of fixing the issues.\n\n"
+        "You MUST start fixing files immediately. Use `read_file` to inspect the files"
+        " you need to modify, then use `write_file` to rewrite them. Do NOT call"
+        " search_github, search_web, or fetch_url until you have fixed the identified issues.\n\n"
+        "The existing files and feedback contain everything you need. Start fixing now."
+    )
+
+    return _run_edit_agent(
+        tool_dir=tool_dir,
+        config=config,
+        api_key=api_key,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        no_files_nudge=no_files_nudge,
+        existing_files=ctx.existing_files,
+        mode="feedback",
+        max_iterations_override=max_iterations_override,
+        max_validation_retries_override=max_validation_retries_override,
+    )
+
+
+def update_tool(
+    description: str,
+    links: list[str],
+    plan_markdown: str,
+    config: BotConfig,
+    api_key: str,
+    src_tool_dir: Path,
+    output_dir: Path,
+    tool_dir_name: str,
+    max_iterations_override: int | None = None,
+    max_validation_retries_override: int | None = None,
+) -> tuple[GeneratedTool, AgentResult, ValidationResult, int]:
+    """
+    Implement an approved update plan on an existing tool:
+    1. Stage the existing tool directory (src_tool_dir) into output_dir —
+       the caller's checkout must contain tools/<dir> already. Files are
+       copied verbatim so binary test data survives intact.
+    2. Run the shared edit-agent loop (agent + validation retries + optional
+       integrated review), the same machinery as address_feedback.
+    """
+    if not src_tool_dir.is_dir():
+        raise ValueError(f"Tool directory {src_tool_dir} does not exist")
+
+    output_dir = Path(output_dir)
+    if output_dir.exists():
+        shutil.rmtree(output_dir)
+    shutil.copytree(src_tool_dir, output_dir)
+    (output_dir / ".tool-name").unlink(missing_ok=True)
+
+    # For the prompt, only file names are listed — read_tool_files' binary
+    # placeholders never leave this function. The same dict drives
+    # _load_existing_files, which seeds the writer from real disk bytes so
+    # unchanged files (including binaries) carry over into the PR intact.
+    existing_files = read_tool_files(output_dir)
+
+    system_prompt = _load_template("update_system.txt").render()
+    user_prompt = _build_update_user_prompt(
+        description, links, plan_markdown, existing_files, tool_dir_name,
+    )
+
+    if config.agent_notes:
+        user_prompt += (
+            "\n\n---\n\n## Agent Notes\n\n"
+            "If a `.agent-notes` file exists, use `read_file` to read it for context on "
+            "decisions made during generation or previous update rounds. "
+            "Write notes incrementally as you work — call `add_agent_notes` each time you "
+            "discover something worth noting (e.g. an upstream bug, a workaround, a failed "
+            "approach). Do NOT wait until the end, as you may run out of iterations before "
+            "you get there. Without these notes, the next feedback round starts from scratch."
+        )
+
+    no_files_nudge = (
+        "No files were modified in the previous attempt. The agent spent all iterations"
+        " on research instead of implementing the plan.\n\n"
+        "You MUST start editing files immediately. Use `read_file` to inspect the files"
+        " you need to modify, then use `write_file` to rewrite them. Do NOT call"
+        " search_github, search_web, or fetch_url until you have made the planned changes.\n\n"
+        "The plan and the existing files contain everything you need. Start editing now."
+    )
+
+    # Scale validation retry rounds by the number of tool XMLs in the existing
+    # directory — same rule generate uses for the plan's XML count.
+    scaled_retries: int | None = None
+    increment = config.api.validation_retries_per_extra_tool_xml
+    if increment > 0:
+        from gxy_tool_bot.planner import count_tool_xmls_in_dir
+        num_xmls = count_tool_xmls_in_dir(existing_files)
+        scaled_retries = config.api.max_validation_retries + increment * max(0, num_xmls - 1)
+        logger.info(
+            "Scaled validation retries: %d baseline + %d * (%d tool XMLs - 1) = %d "
+            "rounds of %d iterations",
+            config.api.max_validation_retries, increment, num_xmls, scaled_retries,
+            config.api.max_tool_iterations,
+        )
+    effective_retries_override = max_validation_retries_override if max_validation_retries_override is not None else scaled_retries
+
+    return _run_edit_agent(
+        tool_dir=output_dir,
+        config=config,
+        api_key=api_key,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        no_files_nudge=no_files_nudge,
+        existing_files=existing_files,
+        mode="update",
+        plan_markdown=plan_markdown,
+        max_iterations_override=max_iterations_override,
+        max_validation_retries_override=effective_retries_override,
+    )

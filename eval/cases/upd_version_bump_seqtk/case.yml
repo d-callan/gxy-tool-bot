@@ -1,0 +1,28 @@
+name: upd_version_bump_seqtk
+type: update
+difficulty: easy
+description: "Bump seqtk from 1.4 to 1.5 — version tokens, requirements, and suffix reset"
+existing_files:
+  - seqtk.xml
+  - macros.xml
+  - test-data/reads.fasta
+update:
+  description: |
+    seqtk 1.5 was released upstream. Bump the wrapper from 1.4 to 1.5:
+    update the version token and the requirement, and reset the galaxy
+    version suffix.
+  links:
+    - https://github.com/lh3/seqtk/releases/tag/v1.5
+plan: plan.md
+assertions:
+  - type: file_contains
+    file: macros.xml
+    pattern: 'name="@TOOL_VERSION@">1\.5<'
+  - type: file_contains
+    file: macros.xml
+    pattern: 'name="@VERSION_SUFFIX@">0<'
+  - type: file_contains
+    file: macros.xml
+    pattern: 'version="1\.5"'
+expect_validation_pass: true
+expect_planemo_pass: null

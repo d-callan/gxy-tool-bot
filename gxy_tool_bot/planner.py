@@ -25,6 +25,7 @@ from gxy_tool_bot.lookups import (
     search_tool_shed,
     search_web,
 )
+from gxy_tool_bot.utils import read_tool_files
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,15 @@ PLAN_MARKER = "<!-- gxy-tool-bot-plan -->"
 @dataclass
 class ToolRequest:
     tool_name: str
+    description: str
+    links: list[str]
+    contact: str | None = None
+
+
+@dataclass
+class UpdateRequest:
+    """A request to update an existing tool in tools/<tool_dir>/."""
+    tool_dir: str
     description: str
     links: list[str]
     contact: str | None = None
@@ -317,6 +327,86 @@ def _load_template(name: str) -> str:
     return template
 
 
+def _build_existing_files_text(existing_files: dict[str, str]) -> str:
+    """Format existing tool files for a prompt: text files inline, binary/large
+    files listed by name only."""
+    _INLINE_EXTS = (".xml", ".yml", ".yaml", ".txt", ".md", ".json", ".cfg")
+    _MAX_FILE_CHARS = 20_000
+    parts: list[str] = []
+    listed_only: list[str] = []
+    for path in sorted(existing_files):
+        content = existing_files[path]
+        if not path.endswith(_INLINE_EXTS) or len(content) > _MAX_FILE_CHARS:
+            listed_only.append(path)
+            continue
+        parts.append(f"### {path}\n```\n{content}\n```")
+    if listed_only:
+        parts.append("### Other files present (contents not shown — use filename only)")
+        parts.extend(f"- `{p}`" for p in listed_only)
+    return "\n\n".join(parts)
+
+
+def generate_update_plan(
+    request: UpdateRequest,
+    config: BotConfig,
+    api_key: str,
+    tool_dir: Path,
+) -> tuple[str, AgentResult]:
+    """
+    Update-planning pipeline: same shape as generate_plan, but the context is
+    the existing tool's files plus the requested change.
+    1. Read existing files from tool_dir.
+    2. Run targeted lookups (upstream repo, bioconda, pubs, Tool Shed) using the
+       tool dir name as the tool name.
+    3. Run the planner agent loop with lookup tools.
+    4. Return the plan Markdown and AgentResult.
+    """
+    existing_files = read_tool_files(tool_dir)
+    if not existing_files:
+        raise ValueError(f"No tool files found in {tool_dir}")
+
+    lookup_ctx = _run_lookups(ToolRequest(
+        tool_name=request.tool_dir,
+        description=request.description,
+        links=request.links,
+        contact=request.contact,
+    ))
+
+    system_prompt = _load_template("update_planner_system.txt").render()
+    user_prompt = _load_template("update_planner_user.txt").render(
+        tool_dir=request.tool_dir,
+        description=request.description,
+        links=request.links,
+        contact=request.contact,
+        existing_files=_build_existing_files_text(existing_files),
+        lookup_context=_build_lookup_context_text(lookup_ctx),
+    )
+
+    total_chars = len(system_prompt) + len(user_prompt)
+    if total_chars > config.api.max_context_chars:
+        logger.warning(
+            "Prompt size %d exceeds max_context_chars %d",
+            total_chars, config.api.max_context_chars,
+        )
+
+    tools = _build_tool_definitions()
+    with ApiClient(
+        config.api.base_url, api_key, config.api.model,
+        read_timeout=config.api.read_timeout, fallback_models=config.api.fallback_models,
+    ) as client:
+        result = run_agent_loop(
+            client=client,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            tools=tools,
+            max_iterations=config.api.max_tool_iterations,
+            temperature=config.api.temperature_plan,
+            max_context_chars=config.api.max_context_chars,
+        )
+
+    return result.content, result
+
+
 def generate_plan(
     request: ToolRequest,
     config: BotConfig,
@@ -357,7 +447,10 @@ def generate_plan(
 
     # Run agent loop
     tools = _build_tool_definitions()
-    with ApiClient(config.api.base_url, api_key, config.api.model, read_timeout=config.api.read_timeout, fallback_models=config.api.fallback_models) as client:
+    with ApiClient(
+        config.api.base_url, api_key, config.api.model,
+        read_timeout=config.api.read_timeout, fallback_models=config.api.fallback_models,
+    ) as client:
         result = run_agent_loop(
             client=client,
             system_prompt=system_prompt,
@@ -381,11 +474,17 @@ _ISSUE_FORM_HEADING_RE = re.compile(r"^###\s+(.+?)\s*$", re.MULTILINE)
 _ISSUE_FORM_LABELS = {"tool name", "description", "links", "contact"}
 
 
-def _find_issue_form_boundaries(body: str) -> list[re.Match]:
-    """Positions of recognized `### Label` field headings in the body."""
+def _find_issue_form_boundaries(body: str, labels: set[str] | None = None) -> list[re.Match]:
+    """Positions of recognized `### Label` field headings in the body.
+
+    ``labels`` defaults to the tool-request form's labels; other templates
+    (e.g. tool-update) pass their own set.
+    """
+    if labels is None:
+        labels = _ISSUE_FORM_LABELS
     return [
         m for m in _ISSUE_FORM_HEADING_RE.finditer(body)
-        if m.group(1).strip().lower() in _ISSUE_FORM_LABELS
+        if m.group(1).strip().lower() in labels
     ]
 
 
@@ -454,6 +553,94 @@ def parse_issue_body(body: str) -> ToolRequest:
     )
 
 
+# Field labels rendered by the tool-update issue form, mapped to canonical
+# field names. Aliases cover minor label variations and hand-written issues.
+_UPDATE_FIELD_ALIASES = {
+    "tool directory": "tool_dir",
+    "tool": "tool_dir",
+    "tool name": "tool_dir",
+    "what to change": "description",
+    "update description": "description",
+    "description": "description",
+    "links": "links",
+    "contact": "contact",
+}
+
+
+def _parse_update_field_lines(text: str) -> dict[str, str]:
+    """Parse legacy `Label: value` lines for the update fields."""
+    fields: dict[str, str] = {}
+    for line in text.strip().split("\n"):
+        line = line.strip()
+        lowered = line.lower()
+        for prefix, key in (
+            ("tool directory:", "tool_dir"),
+            ("tool:", "tool_dir"),
+            ("what to change:", "description"),
+            ("description:", "description"),
+            ("contact:", "contact"),
+        ):
+            if lowered.startswith(prefix):
+                fields[key] = line.split(":", 1)[1].strip()
+                break
+    return fields
+
+
+# Tool directories are flat names under tools/ — a single safe path
+# component. Anything else (separators, traversal, newlines) is rejected so
+# the name can never escape tools/ or inject lines into workflow outputs.
+_TOOL_DIR_SAFE_RE = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.\-]*")
+
+
+def _clean_tool_dir(value: str) -> str:
+    """Normalize a user-provided tool directory to a name under tools/.
+
+    Returns "" when the value isn't a single safe path component.
+    """
+    cleaned = value.strip().strip("`").strip("/")
+    if cleaned.startswith("tools/"):
+        cleaned = cleaned[len("tools/"):]
+    if not _TOOL_DIR_SAFE_RE.fullmatch(cleaned) or ".." in cleaned:
+        return ""
+    return cleaned
+
+
+def parse_update_issue_body(body: str) -> UpdateRequest:
+    """Parse a GitHub issue body into an UpdateRequest.
+
+    Handles issue-form output (`### Tool directory` / `### What to change` /
+    `### Links` / `### Contact` headings) and plain `Label: value` lines.
+    Falls back to treating the whole body as the description.
+    """
+    boundaries = _find_issue_form_boundaries(body, set(_UPDATE_FIELD_ALIASES))
+    # `Label:` lines only count before the first `###` heading — a field's
+    # value may itself contain label-like lines.
+    legacy_text = body[: boundaries[0].start()] if boundaries else body
+
+    fields = _parse_update_field_lines(legacy_text)
+    for label, value in _parse_issue_form_fields(body, boundaries).items():
+        fields[_UPDATE_FIELD_ALIASES[label]] = value
+
+    tool_dir = _clean_tool_dir(fields.get("tool_dir", ""))
+    description = fields.get("description", "")
+    contact = fields.get("contact") or None
+
+    # Extract all URLs from the body via regex — robust against any formatting
+    links = re.findall(r'https?://[^\s<>"\')]+', body)
+
+    # Fallback: whole body is the description only when no structured fields
+    # were found at all (a `_No response._` description stays empty).
+    if not description and not fields:
+        description = body[:2000]
+
+    return UpdateRequest(
+        tool_dir=tool_dir,
+        description=description,
+        links=links,
+        contact=contact,
+    )
+
+
 def find_plan_comment(comments: list) -> str | None:
     """Find the plan comment by its hidden marker."""
     for comment in comments:
@@ -487,6 +674,23 @@ def count_tool_xmls_in_plan(plan_markdown: str) -> int:
     names = {
         match.lower()
         for match in re.findall(r"[\w.-]+\.xml", plan_markdown)
+    }
+    names.discard("macros.xml")
+    return max(1, len(names))
+
+
+def count_tool_xmls_in_dir(file_paths) -> int:
+    """Count tool XML files in a set of relative paths (``macros.xml`` excluded).
+
+    Used to scale validation retry rounds for the update flow, mirroring
+    ``count_tool_xmls_in_plan`` for generation. Accepts any iterable of
+    path strings (e.g. ``dict.keys()`` from ``read_tool_files``). Returns at
+    least 1 — a tool directory always contains at least one tool XML.
+    """
+    names = {
+        str(p).rsplit("/", 1)[-1].lower()
+        for p in file_paths
+        if str(p).endswith(".xml")
     }
     names.discard("macros.xml")
     return max(1, len(names))
