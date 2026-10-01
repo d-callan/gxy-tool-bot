@@ -120,8 +120,17 @@ def test_is_newer_stable_after_prerelease() -> None:
 
 
 def test_version_key_mixed_segments() -> None:
-    assert _version_key("1.4.2") == ((0, 1, ""), (0, 4, ""), (0, 2, ""))
+    assert _version_key("1.4.2") == ((0, 0, ""), (0, 1, ""), (0, 4, ""), (0, 2, ""))
     assert _version_key("v1") != _version_key("1")
+
+
+def test_is_newer_epoch() -> None:
+    # A conda epoch (1!2.0) outranks every non-epoch version.
+    assert is_newer("1!2.0", "2.0")
+    assert is_newer("1!2.0", "9.9")
+    assert not is_newer("2.0", "1!2.0")
+    assert is_newer("2!1.0", "1!9.9")
+    assert not is_newer("1!2.0", "1!2.1")
 
 
 # ---------------------------------------------------------------------------

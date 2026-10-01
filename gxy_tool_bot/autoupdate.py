@@ -114,8 +114,17 @@ def _main_requirement(
 
 
 def _version_key(version: str) -> tuple:
-    """Rough version ordering key: numeric segments compare numerically."""
-    key: list[tuple[int, int, str]] = []
+    """Rough version ordering key: numeric segments compare numerically.
+
+    A leading conda epoch (``1!2.0``) is compared first, so an epoch
+    release outranks any non-epoch version.
+    """
+    epoch = 0
+    epoch_str, bang, rest = version.partition("!")
+    if bang and epoch_str.isdigit():
+        epoch = int(epoch_str)
+        version = rest
+    key: list[tuple[int, int, str]] = [(0, epoch, "")]
     for part in re.split(r"[.\-_+~]", version):
         for sub in re.findall(r"[0-9]+|[a-zA-Z]+", part):
             key.append((0, int(sub), "") if sub.isdigit() else (1, 0, sub.lower()))
@@ -299,24 +308,25 @@ def detect_outdated_tools(
         outdated: list[OutdatedTool] = []
         for child in candidates:
             result = check_tool_dir(child, config, client)
-            if result is not None:
-                outdated.append(result)
-        if gh is not None:
-            actionable: list[OutdatedTool] = []
-            for o in outdated:
-                decision = check_autoupdate_pr_state(gh, o.tool_dir, o.latest)
-                if decision.proceed:
-                    actionable.append(o)
-                else:
-                    logger.info("%s: not actionable — %s", o.tool_dir, decision.reason)
-            outdated = actionable
-        if cap:
-            if len(outdated) > cap:
+            if result is None:
+                continue
+            if gh is not None:
+                decision = check_autoupdate_pr_state(
+                    gh, result.tool_dir, result.latest,
+                )
+                if not decision.proceed:
+                    logger.info(
+                        "%s: not actionable — %s",
+                        result.tool_dir, decision.reason,
+                    )
+                    continue
+            outdated.append(result)
+            if cap and len(outdated) >= cap:
                 logger.info(
                     "Reached max_tools_per_run=%d — %d tools returned",
-                    cap, cap,
+                    cap, len(outdated),
                 )
-            outdated = outdated[:cap]
+                break
         return outdated
     finally:
         if own_client:
