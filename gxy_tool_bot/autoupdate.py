@@ -179,14 +179,27 @@ def is_newer(latest: str, current: str) -> bool:
 _VERSION_ALLOWED_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+~!\-]{0,127}$")
 
 
-# Status codes worth retrying — the anaconda API occasionally blips, and
-# one timeout shouldn't kill a whole-repo detect run.
-_TRANSIENT_STATUS = frozenset({429, 500, 502, 503, 504})
+# The anaconda API occasionally blips, and one timeout shouldn't kill a
+# whole-repo detect run.
 _PACKAGE_API_ATTEMPTS = 3
+# Retry-After is honored but capped so a misbehaving server can't stall a
+# detect run for hours.
+_MAX_RETRY_DELAY = 120.0
+
+
+def _retry_delay(resp: httpx.Response | None, attempt: int) -> float:
+    delay = 2.0 * (attempt + 1)
+    retry_after = resp.headers.get("Retry-After") if resp is not None else None
+    if retry_after:
+        try:
+            delay = max(delay, min(float(retry_after), _MAX_RETRY_DELAY))
+        except ValueError:
+            pass
+    return delay
 
 
 def _get_package_response(client: httpx.Client, url: str) -> httpx.Response:
-    """GET ``url``, retrying transient transport errors and 5xx/429 responses."""
+    """GET ``url``, retrying transient transport errors and 429/5xx responses."""
     resp: httpx.Response | None = None
     for attempt in range(_PACKAGE_API_ATTEMPTS):
         try:
@@ -196,15 +209,14 @@ def _get_package_response(client: httpx.Client, url: str) -> httpx.Response:
                 raise
             logger.warning("Transient error fetching %s — retrying", url)
         else:
-            if resp.status_code not in _TRANSIENT_STATUS:
-                return resp
-            if attempt == _PACKAGE_API_ATTEMPTS - 1:
+            transient = resp.status_code == 429 or resp.status_code >= 500
+            if not transient or attempt == _PACKAGE_API_ATTEMPTS - 1:
                 return resp
             logger.warning(
                 "anaconda.org returned %s for %s — retrying",
                 resp.status_code, url,
             )
-        time.sleep(2 * (attempt + 1))
+        time.sleep(_retry_delay(resp, attempt))
     return resp
 
 

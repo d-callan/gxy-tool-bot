@@ -86,9 +86,10 @@ class _FakeHTTP:
 
 
 class _Resp:
-    def __init__(self, status_code: int, payload: dict):
+    def __init__(self, status_code: int, payload: dict, headers: dict | None = None):
         self.status_code = status_code
         self._payload = payload
+        self.headers = httpx.Headers(headers or {})
 
     def raise_for_status(self):
         if self.status_code >= 400:
@@ -285,6 +286,23 @@ def test_latest_package_version_persistent_5xx_raises(_no_sleep) -> None:
     http = _FlakyHTTP({"bioconda/seqtk": "1.6"}, failures=5, status=500)
     with pytest.raises(httpx.HTTPStatusError):
         latest_package_version("seqtk", ["bioconda"], http)
+
+
+def test_latest_package_version_retries_unlisted_5xx(_no_sleep) -> None:
+    # Cloudflare-style gateway errors aren't enumerated — all 5xx retry.
+    http = _FlakyHTTP({"bioconda/seqtk": "1.6"}, failures=1, status=520)
+    version, _ = latest_package_version("seqtk", ["bioconda"], http)
+    assert version == "1.6"
+
+
+def test_retry_delay_honors_retry_after() -> None:
+    resp = _Resp(429, {}, headers={"retry-after": "30"})
+    assert au._retry_delay(resp, 0) == 30.0
+
+
+def test_retry_delay_caps_retry_after() -> None:
+    resp = _Resp(429, {}, headers={"retry-after": "9999"})
+    assert au._retry_delay(resp, 0) == 120.0
 
 
 def test_check_tool_dir_outdated(tmp_path) -> None:
