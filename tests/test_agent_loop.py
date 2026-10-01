@@ -770,3 +770,68 @@ def test_agent_loop_nudges_on_truncated_tool_response() -> None:
     assert result.tool_call_trace[0]["result"] == "results"
     user_msgs = [m for m in result.messages if m.get("role") == "user"]
     assert any("incomplete arguments" in m.get("content", "") for m in user_msgs)
+
+
+def test_agent_loop_give_up_stubs_later_tool_calls() -> None:
+    """Calls after give_up in the same batch must still get tool results —
+    the message history is reused by review/fix rounds and an unanswered
+    tool_call breaks the next chat request."""
+    client = MagicMock()
+    client.chat.return_value = ChatResponse(
+        content=None,
+        tool_calls=[
+            _make_tool_call("call_1", "give_up", {"reason": "stuck"}),
+            _make_tool_call("call_2", "write_file", {"path": "x", "content": "y"}),
+        ],
+        finish_reason="tool_calls",
+    )
+
+    tools = [
+        ToolDefinition(
+            name="give_up",
+            description="Give up",
+            parameters={"type": "object", "properties": {}},
+            handler=lambda args: "Gave up: stuck",
+        ),
+        ToolDefinition(
+            name="write_file",
+            description="Write",
+            parameters={"type": "object", "properties": {}},
+            handler=lambda args: "wrote",
+        ),
+    ]
+
+    result = run_agent_loop(
+        client=client,
+        system_prompt="sys",
+        user_prompt="user",
+        tools=tools,
+        max_iterations=5,
+    )
+
+    tool_msgs = [m for m in result.messages if m.get("role") == "tool"]
+    assert len(tool_msgs) == 2
+    assert tool_msgs[1]["tool_call_id"] == "call_2"
+    assert "Skipped" in tool_msgs[1]["content"]
+    assert result.content.startswith("Gave up:")
+
+
+def test_agent_loop_keeps_partial_content_on_truncated_last_iteration() -> None:
+    """A 'length' truncation on the final iteration should still surface the
+    partial answer rather than an empty result."""
+    client = MagicMock()
+    client.chat.return_value = ChatResponse(
+        content="Partial answer cut o",
+        tool_calls=None,
+        finish_reason="length",
+    )
+
+    result = run_agent_loop(
+        client=client,
+        system_prompt="sys",
+        user_prompt="user",
+        tools=[],
+        max_iterations=2,
+    )
+
+    assert "Partial answer cut o" in result.content

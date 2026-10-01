@@ -275,7 +275,7 @@ def run_agent_loop(
             ]
             messages.append(assistant_msg)
 
-            for tc in response.tool_calls:
+            for call_index, tc in enumerate(response.tool_calls):
                 logger.debug("Tool call: %s(%s)", tc.name, tc.arguments)
                 tool_def = tool_map.get(tc.name)
                 if tool_def is None:
@@ -328,6 +328,15 @@ def run_agent_loop(
                 if result.startswith("Gave up:"):
                     final_content = result
                     terminated_naturally = True
+                    # Calls after give_up never run — stub their results so
+                    # every tool_call in the history has a matching result
+                    # (consumers reuse messages for review/fix rounds).
+                    for skipped in response.tool_calls[call_index + 1:]:
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": skipped.id,
+                            "content": "Skipped: the agent gave up earlier in this batch.",
+                        })
                     break
 
             if terminated_naturally:
@@ -336,6 +345,9 @@ def run_agent_loop(
                 # The response hit the model's output limit mid-generation —
                 # the last tool call's arguments may be incomplete. Give the
                 # agent a clear signal instead of a confusing args error.
+                # Keep the partial content too so a truncation on the final
+                # iteration still yields a usable answer.
+                final_content = response.content or ""
                 messages.append({
                     "role": "user",
                     "content": (
@@ -349,6 +361,7 @@ def run_agent_loop(
             # output limit cut it off mid-response, in which case let the
             # agent finish rather than returning truncated content.
             if response.finish_reason == "length":
+                final_content = response.content or ""
                 messages.append({"role": "assistant", "content": response.content or ""})
                 messages.append({
                     "role": "user",
