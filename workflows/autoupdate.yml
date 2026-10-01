@@ -190,7 +190,14 @@ jobs:
               fi
             fi
           fi
-          git push origin "$BRANCH" --force
+          if ! git push origin "$BRANCH" --force; then
+            # The PR may have just been reopened — tell the maintainer why
+            # it shows the old (declined) commits rather than the update.
+            if [ -n "$PR_NUMBER" ]; then
+              gh pr comment "$PR_NUMBER" --body "⚠️ Autoupdate reopened this PR but could not push the updated branch (\`$BRANCH\`). The update is retried on the next run — see the [workflow logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})." || true
+            fi
+            exit 1
+          fi
           if [ -n "$PR_NUMBER" ]; then
             # Sync the title with the version the branch now targets.
             gh pr edit "$PR_NUMBER" --title "$(cat $GITHUB_WORKSPACE/.pr-title)"
