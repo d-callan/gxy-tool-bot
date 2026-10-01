@@ -149,13 +149,16 @@ Dedup semantics mirror planemo-autoupdate: an open PR on
 reopens when the detected version beats the declined one (parsed from the
 PR title); a branch whose last commit isn't by `gxy-tool-bot` is never
 overwritten. Results reach the workflow through marker files in
-`$GITHUB_WORKSPACE` (`.autoupdate-skip`, `.autoupdate-reopen`) plus the
+`$GITHUB_WORKSPACE` (`.autoupdate-skip`, `.autoupdate-pr`) plus the
 same `generated/.tool-name` / `.commit-msg` / `.pr-body` outputs the other
-flows use.
+flows use. An open PR isn't just skipped: when a newer version appears,
+new commits fold into it (and its title is re-synced).
 
 Config lives under `autoupdate:` (`enabled`, `channels`, `skip`,
-`skip_file`) — the run frequency itself can only live in the workflow's
-`cron:` line. Budget knobs (`max_tool_iterations`, `max_validation_retries`,
+`skip_file`, `max_tools_per_run` — blast-radius cap, default 10; the
+matrix additionally caps concurrency with `max-parallel`) — the run
+frequency itself can only live in the workflow's `cron:` line. Budget
+knobs (`max_tool_iterations`, `max_validation_retries`,
 `validation_retries_per_extra_tool_xml`) apply as-is.
 
 ## Running Tests

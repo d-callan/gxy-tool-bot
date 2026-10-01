@@ -60,6 +60,9 @@ class AutoupdateConfig:
     channels: list[str] = field(default_factory=lambda: ["bioconda", "conda-forge"])
     skip: list[str] = field(default_factory=list)
     skip_file: str | None = None
+    # Upper bound on tools updated per scheduled run — a first run on a large
+    # repo could otherwise fire hundreds of agent jobs at once. 0 = no cap.
+    max_tools_per_run: int = 10
 
 
 @dataclass
@@ -149,6 +152,7 @@ def load_config(path: Path) -> BotConfig:
         channels=autoupdate_raw.get("channels", ["bioconda", "conda-forge"]),
         skip=autoupdate_raw.get("skip", []),
         skip_file=autoupdate_raw.get("skip_file"),
+        max_tools_per_run=autoupdate_raw.get("max_tools_per_run", 10),
     )
 
     allowed_maintainers = raw.get("allowed_maintainers")

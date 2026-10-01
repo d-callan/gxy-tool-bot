@@ -98,7 +98,8 @@ def _main_requirement(
     tokens: dict[str, str],
 ) -> tuple[str, str] | None:
     """Pick the tool's main requirement: the one bound to @TOOL_VERSION@,
-    else the one matching the dir name, else the first resolvable."""
+    else the one matching the dir name, else None (the tool is skipped —
+    planemo-autoupdate likewise ignores tools it can't identify)."""
     for package, spec in reqs:
         if spec.lower() == "@tool_version@":
             version = _resolve_version(spec, tokens)
@@ -109,10 +110,6 @@ def _main_requirement(
             version = _resolve_version(spec, tokens)
             if version:
                 return package, version
-    for package, spec in reqs:
-        version = _resolve_version(spec, tokens)
-        if version:
-            return package, version
     return None
 
 
@@ -194,8 +191,11 @@ def check_tool_dir(
         return None
     package, current = main
     latest, channel = latest_package_version(package, config.autoupdate.channels, client)
-    if not latest:
+    if not latest or not is_newer(latest, current):
+        logger.info("%s: %s is current (%s)", tool_dir.name, package, current)
         return None
+    # Only worth checking secondary requirements once we know the tool is
+    # outdated — avoids a dirs × requirements fan-out of anaconda calls.
     others: list[tuple[str, str, str]] = []
     seen = {(package, current)}
     for pkg, spec in reqs:
@@ -208,31 +208,41 @@ def check_tool_dir(
         o_latest, _ = latest_package_version(pkg, config.autoupdate.channels, client)
         if o_latest and is_newer(o_latest, resolved):
             others.append((pkg, resolved, o_latest))
-    if is_newer(latest, current):
-        return OutdatedTool(tool_dir.name, package, current, latest, channel or "", others)
-    logger.info("%s: %s is current (%s)", tool_dir.name, package, current)
-    return None
+    return OutdatedTool(tool_dir.name, package, current, latest, channel or "", others)
 
 
 def detect_outdated_tools(
     tools_dir: Path,
     config: BotConfig,
     client: httpx.Client | None = None,
+    max_tools: int | None = None,
 ) -> list[OutdatedTool]:
-    """Scan tools/ for dirs whose main requirement has a newer conda version."""
+    """Scan tools/ for dirs whose main requirement has a newer conda version.
+
+    At most ``max_tools`` (or ``autoupdate.max_tools_per_run`` when unset;
+    0 means no cap) results, in dir-name order — bounds the number of agent
+    runs a single workflow run can trigger."""
     if not config.autoupdate.enabled:
         return []
+    cap = max_tools if max_tools is not None else config.autoupdate.max_tools_per_run
     skipped = skip_dirs(config, tools_dir.parent if tools_dir.name == "tools" else Path("."))
     own_client = client is None
     client = client or httpx.Client(timeout=30)
     try:
-        return [
-            result
-            for child in sorted(tools_dir.iterdir())
-            if child.is_dir() and not child.name.startswith(".") and child.name not in skipped
-            for result in [check_tool_dir(child, config, client)]
-            if result is not None
-        ]
+        outdated: list[OutdatedTool] = []
+        for child in sorted(tools_dir.iterdir()):
+            if not child.is_dir() or child.name.startswith(".") or child.name in skipped:
+                continue
+            result = check_tool_dir(child, config, client)
+            if result is not None:
+                outdated.append(result)
+                if cap and len(outdated) >= cap:
+                    logger.info(
+                        "Reached max_tools_per_run=%d — %d tools returned",
+                        cap, len(outdated),
+                    )
+                    break
+        return outdated
     finally:
         if own_client:
             client.close()
@@ -246,7 +256,16 @@ def detect_outdated_tools(
 class AutoupdateDecision:
     proceed: bool
     reason: str
-    reopen_pr: int | None = None
+    # An open or closed-unmerged autoupdate PR that already exists for this
+    # tool — the workflow pushes to its branch and updates/reopens it
+    # instead of creating a new PR.
+    existing_pr: int | None = None
+
+
+def _title_version(title: str) -> str | None:
+    """Version an autoupdate PR targets, from its '... to X.Y.Z' title."""
+    match = re.search(r"to (\S+)\s*$", title)
+    return match.group(1) if match else None
 
 
 def _branch_exists(branch: str) -> bool:
@@ -274,12 +293,6 @@ def check_autoupdate_pr_state(
     """Decide whether an autoupdate run should proceed for a tool dir."""
     branch = f"{BRANCH_PREFIX}{tool_dir_name}"
 
-    open_prs = gh.list_prs(branch, state="open")
-    if open_prs:
-        return AutoupdateDecision(
-            False, f"open PR #{open_prs[0]['number']} already exists for {branch}"
-        )
-
     if _branch_exists(branch):
         author = _last_commit_author(branch)
         if author and author != BOT_AUTHOR:
@@ -295,22 +308,38 @@ def check_autoupdate_pr_state(
                 False, f"branch {branch} has manual commits by {author}"
             )
 
+    open_prs = gh.list_prs(branch, state="open")
+    if open_prs:
+        pr = open_prs[0]
+        target = _title_version(pr.get("title") or "")
+        if target and is_newer(detected_latest, target):
+            # planemo-autoupdate folds newer versions into the open PR rather
+            # than waiting for it to merge — push updates it in place.
+            return AutoupdateDecision(
+                True,
+                f"open PR #{pr['number']} targets {target} — folding in {detected_latest}",
+                existing_pr=pr["number"],
+            )
+        return AutoupdateDecision(
+            False, f"open PR #{pr['number']} already covers {target or detected_latest}"
+        )
+
     declined = [
         p for p in gh.list_prs(branch, state="closed")
         if p.get("merged_at") is None
     ]
     if declined:
         pr = declined[0]
-        match = re.search(r"to (\S+)\s*$", pr.get("title") or "")
-        if match and not is_newer(detected_latest, match.group(1)):
+        declined_version = _title_version(pr.get("title") or "")
+        if declined_version and not is_newer(detected_latest, declined_version):
             return AutoupdateDecision(
                 False,
-                f"maintainer declined up to {match.group(1)} in PR #{pr['number']}",
+                f"maintainer declined up to {declined_version} in PR #{pr['number']}",
             )
         return AutoupdateDecision(
             True,
             f"newer version than declined PR #{pr['number']} — will reopen",
-            reopen_pr=pr["number"],
+            existing_pr=pr["number"],
         )
 
     return AutoupdateDecision(True, "no existing PR or branch")

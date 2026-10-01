@@ -12,7 +12,8 @@
 # it from this file, not from the bot config.
 #
 # Dedup rules (mirroring planemo-autoupdate):
-#   * an open PR on the tool's autoupdate branch → skipped;
+#   * an open PR on the tool's autoupdate branch → skipped, unless a newer
+#     version appeared since it opened (new commits fold into the open PR);
 #   * a closed, unmerged autoupdate PR → only a newer version than the declined
 #     one reopens it, so maintainers decline a version by closing its PR;
 #   * a branch whose last commit wasn't authored by the bot → never overwritten.
@@ -23,6 +24,11 @@ on:
     inputs:
       tool_dir:
         description: "Only check this tools/<dir> (blank = all tools)"
+        required: false
+        type: string
+        default: ""
+      max_tools:
+        description: "Cap tools updated this run (blank = autoupdate.max_tools_per_run)"
         required: false
         type: string
         default: ""
@@ -52,9 +58,13 @@ jobs:
       - name: Detect outdated tools
         id: detect
         run: |
+          MAX_TOOLS_ARG=""
+          if [ -n "${{ inputs.max_tools }}" ]; then
+            MAX_TOOLS_ARG="--max-tools ${{ inputs.max_tools }}"
+          fi
           TOOLS=$(gxy-tool-bot autoupdate-detect \
             --config .gxy-tool-bot.yml \
-            --tools-dir tools)
+            --tools-dir tools $MAX_TOOLS_ARG)
           # Restrict to a single tool dir when triggered manually with one.
           if [ -n "${{ inputs.tool_dir }}" ]; then
             TOOLS=$(echo "$TOOLS" | jq -c '[.[] | select(.tool_dir == "${{ inputs.tool_dir }}")]')
@@ -72,6 +82,10 @@ jobs:
       cancel-in-progress: false
     strategy:
       fail-fast: false
+      # One LLM job per outdated dir — cap concurrency so a run can't fire
+      # dozens of concurrent agent runs/API calls (GitHub also caps matrices
+      # at 256 jobs). autoupdate.max_tools_per_run bounds the total per run.
+      max-parallel: 5
       matrix:
         tool: ${{ fromJSON(needs.detect.outputs.tools) }}
     env:
@@ -154,12 +168,17 @@ jobs:
           else
           git commit -m "$(cat $GITHUB_WORKSPACE/.commit-msg)"
           git push origin "$BRANCH" --force
-          if [ -f "$GITHUB_WORKSPACE/.autoupdate-reopen" ]; then
-            # A closed, unmerged autoupdate PR for this tool exists and a newer
-            # version was detected — reopen it rather than creating a new one.
-            PR_NUMBER=$(cat "$GITHUB_WORKSPACE/.autoupdate-reopen")
-            gh pr reopen "$PR_NUMBER" || gh pr comment "$PR_NUMBER" --body "🔄 Autoupdate pushed to \`$BRANCH\` but the PR could not be reopened — reopen it manually if you want this update."
-            gh pr comment "$PR_NUMBER" --body "🔄 Autoupdate run — updated to a newer version. [View workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+          if [ -f "$GITHUB_WORKSPACE/.autoupdate-pr" ]; then
+            # An open or closed-unmerged autoupdate PR already exists for this
+            # tool — the push above updated its branch; reopen or comment.
+            PR_NUMBER=$(cat "$GITHUB_WORKSPACE/.autoupdate-pr")
+            STATE=$(gh pr view "$PR_NUMBER" --json state --jq '.state')
+            if [ "$STATE" = "CLOSED" ]; then
+              gh pr reopen "$PR_NUMBER" || gh pr comment "$PR_NUMBER" --body "🔄 Autoupdate pushed to \`$BRANCH\` but the PR could not be reopened — reopen it manually if you want this update."
+            fi
+            # Sync the title with the version the branch now targets.
+            gh pr edit "$PR_NUMBER" --title "$(cat $GITHUB_WORKSPACE/.pr-title)"
+            gh pr comment "$PR_NUMBER" --body "🔄 Autoupdate run — pushed new commits. [View workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
           else
             # PR title format: "tool_dir: update tool wrapper to X.Y.Z"
             # The address-feedback workflow parses this title (cut -d':' -f1) to
@@ -170,6 +189,7 @@ jobs:
               --base "$DEFAULT_BRANCH" \
               --title "$(cat $GITHUB_WORKSPACE/.pr-title)" \
               --body "$(cat $GITHUB_WORKSPACE/.pr-body)"
+            PR_NUMBER=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number' 2>/dev/null || echo "")
           fi
           fi
           if [ -n "$IGNORED_FILES" ] && [ -n "$PR_NUMBER" ]; then
@@ -180,7 +200,7 @@ jobs:
             IGNORED_MSG+="\nThese files are needed for the tool tests. To include them, a maintainer can run \`git add -f\` for each file, or download them from the [workflow artifacts](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
             gh pr comment "$PR_NUMBER" --body "$(echo -e "$IGNORED_MSG")"
           fi
-          rm -f "$GITHUB_WORKSPACE/.commit-msg" "$GITHUB_WORKSPACE/.pr-body" "$GITHUB_WORKSPACE/.pr-title" "$GITHUB_WORKSPACE/.autoupdate-skip" "$GITHUB_WORKSPACE/.autoupdate-reopen"
+          rm -f "$GITHUB_WORKSPACE/.commit-msg" "$GITHUB_WORKSPACE/.pr-body" "$GITHUB_WORKSPACE/.pr-title" "$GITHUB_WORKSPACE/.autoupdate-skip" "$GITHUB_WORKSPACE/.autoupdate-pr"
       - name: Upload gitignored files as artifacts
         if: steps.create_pr.outcome == 'success'
         uses: actions/upload-artifact@v4

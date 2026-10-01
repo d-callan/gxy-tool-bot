@@ -169,6 +169,23 @@ def test_main_requirement_dir_name_fallback(tmp_path) -> None:
     assert _main_requirement("seqtk", reqs, tokens) == ("seqtk", "2.0")
 
 
+def test_main_requirement_unmatched_returns_none(tmp_path) -> None:
+    # No requirement bound to @TOOL_VERSION@ and none matching the dir name —
+    # guessing the first resolvable one (e.g. python) would produce a wrong
+    # version bump, so the tool is skipped like planemo-autoupdate does.
+    xml = (
+        '<tool><requirements>'
+        '<requirement version="3.12">python</requirement>'
+        '</requirements></tool>'
+    )
+    d = _tool_dir(tmp_path, "seqtk", xml)
+    reqs, tokens = _collect_requirements(d)
+    assert _main_requirement("seqtk", reqs, tokens) is None
+    http = _FakeHTTP({"bioconda/python": "9.9"})
+    assert check_tool_dir(d, _config(), http) is None
+    assert http.requested == []
+
+
 # ---------------------------------------------------------------------------
 # latest_package_version / detection
 # ---------------------------------------------------------------------------
@@ -195,6 +212,21 @@ def test_check_tool_dir_current(tmp_path) -> None:
     d = _tool_dir(tmp_path, "seqtk", SEQTK_XML, SEQTK_MACROS)
     http = _FakeHTTP({"bioconda/seqtk": "1.4"})
     assert check_tool_dir(d, _config(), http) is None
+
+
+def test_check_tool_dir_no_extra_queries_when_current(tmp_path) -> None:
+    # Secondary requirements are only checked once the tool is known outdated.
+    xml = """<tool><requirements>
+        <requirement type="package" version="@TOOL_VERSION@">seqtk</requirement>
+        <requirement type="package" version="1.0">htslib</requirement>
+    </requirements></tool>"""
+    d = _tool_dir(tmp_path, "seqtk", xml, SEQTK_MACROS)
+    http = _FakeHTTP({"bioconda/seqtk": "1.4"})
+    assert check_tool_dir(d, _config(), http) is None
+    assert http.requested == [
+        "https://api.anaconda.org/package/bioconda/seqtk",
+        "https://api.anaconda.org/package/conda-forge/seqtk",
+    ]
 
 
 def test_check_tool_dir_flags_other_outdated_requirements(tmp_path) -> None:
@@ -238,6 +270,23 @@ def test_detect_outdated_tools_skip_file(tmp_path) -> None:
     cfg = _config(skip_file="skip.txt")
     out = detect_outdated_tools(tmp_path / "tools", cfg, _FakeHTTP({"bioconda/seqtk": "9.9"}))
     assert out == []
+
+
+def test_detect_outdated_tools_max_tools_cap(tmp_path) -> None:
+    for i in range(5):
+        _tool_dir(
+            tmp_path, f"tool{i}",
+            '<tool><requirements>'
+            f'<requirement version="1.0">tool{i}</requirement>'
+            '</requirements></tool>',
+        )
+    cfg = _config(max_tools_per_run=2)
+    http = _FakeHTTP({f"bioconda/tool{i}": "2.0" for i in range(5)})
+    out = detect_outdated_tools(tmp_path / "tools", cfg, http)
+    assert [o.tool_dir for o in out] == ["tool0", "tool1"]
+    # explicit param overrides the config cap
+    out = detect_outdated_tools(tmp_path / "tools", cfg, http, max_tools=4)
+    assert len(out) == 4
 
 
 # ---------------------------------------------------------------------------
@@ -285,11 +334,31 @@ def _patch_git(monkeypatch, exists: bool, author: str | None) -> None:
     )
 
 
-def test_dedup_open_pr_skips(monkeypatch) -> None:
+def test_dedup_open_pr_same_version_skips(monkeypatch) -> None:
     _patch_git(monkeypatch, exists=True, author="gxy-tool-bot")
     gh = _FakeGH({"open": [{"number": 5, "title": "x: update tool wrapper to 1.6"}]})
     d = check_autoupdate_pr_state(gh, "seqtk", "1.6")
-    assert not d.proceed and d.reopen_pr is None
+    assert not d.proceed and d.existing_pr is None
+
+
+def test_dedup_open_pr_newer_version_folds_in(monkeypatch) -> None:
+    # planemo-autoupdate folds newer versions into the already-open PR.
+    _patch_git(monkeypatch, exists=True, author="gxy-tool-bot")
+    gh = _FakeGH({"open": [{"number": 5, "title": "x: update tool wrapper to 1.6"}]})
+    d = check_autoupdate_pr_state(gh, "seqtk", "1.7")
+    assert d.proceed and d.existing_pr == 5
+
+
+def test_dedup_open_pr_human_commits_not_clobbered(monkeypatch) -> None:
+    # Even with an open PR, human commits on the branch win — never fold in.
+    _patch_git(monkeypatch, exists=True, author="human-user")
+    gh = _FakeGH({
+        "open": [{"number": 5, "title": "x: update tool wrapper to 1.6"}],
+        "all": [{"number": 5, "title": "x: update tool wrapper to 1.6"}],
+    })
+    d = check_autoupdate_pr_state(gh, "seqtk", "1.7")
+    assert not d.proceed and "human-user" in d.reason
+    assert gh.comments and gh.comments[0][0] == 5
 
 
 def test_dedup_no_pr_proceeds(monkeypatch) -> None:
@@ -325,7 +394,7 @@ def test_dedup_declined_newer_version_reopens(monkeypatch) -> None:
         "closed": [{"number": 4, "title": "seqtk: update tool wrapper to 1.6", "merged_at": None}],
     })
     d = check_autoupdate_pr_state(gh, "seqtk", "1.7")
-    assert d.proceed and d.reopen_pr == 4
+    assert d.proceed and d.existing_pr == 4
 
 
 def test_dedup_merged_pr_proceeds(monkeypatch) -> None:

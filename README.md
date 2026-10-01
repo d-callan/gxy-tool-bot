@@ -96,6 +96,9 @@ autoupdate:
   skip:                            # tool dirs (or XML paths) never to update
     - my_tool
   skip_file: autoupdate-skip.txt   # optional file with one entry per line
+  max_tools_per_run: 10            # cap on tools updated per run (0 = no cap);
+                                   # a first run on a big repo could otherwise
+                                   # fire hundreds of agent jobs at once
 ```
 
 ### 3. Create GitHub labels
@@ -179,7 +182,7 @@ Make sure Actions are enabled: Settings → Actions → General → "Allow all a
 
 Dedup rules (mirroring planemo-autoupdate, branch `tool-bot/autoupdate-<dir>`):
 
-- An **open** PR on the tool's autoupdate branch → skipped.
+- An **open** PR on the tool's autoupdate branch → skipped, unless a newer version appeared since it opened — then new commits fold into the open PR and its title is updated (like planemo-autoupdate).
 - A **closed, unmerged** autoupdate PR → a newer detected version reopens it; the same or an older version stays closed. So maintainers decline a specific version by closing the PR without deleting the branch.
 - A branch whose last commit wasn't authored by the bot → never overwritten; the bot comments on the PR saying how to re-enable updates (delete the branch).
 - Add tools to `autoupdate.skip` (or `autoupdate.skip_file`, one entry per line — tool dir names or `tools/<dir>/<file>.xml` paths like planemo-autoupdate's lists) to exclude them entirely.

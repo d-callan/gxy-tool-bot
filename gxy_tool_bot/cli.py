@@ -363,7 +363,9 @@ def generate(issue: int, config_path: str, output_dir: str, actor: str | None, c
 @cli.command(name="autoupdate-detect")
 @click.option("--config", "config_path", type=click.Path(exists=True), default=".gxy-tool-bot.yml")
 @click.option("--tools-dir", "tools_dir", type=click.Path(exists=True), default="tools")
-def autoupdate_detect(config_path: str, tools_dir: str) -> None:
+@click.option("--max-tools", "max_tools", type=int, default=None,
+              help="Cap tools reported this run (default: autoupdate.max_tools_per_run)")
+def autoupdate_detect(config_path: str, tools_dir: str, max_tools: int | None) -> None:
     """Scan tools/ for outdated versions and print them as a JSON array.
 
     Intended for the scheduled autoupdate workflow's matrix step; prints []
@@ -372,7 +374,7 @@ def autoupdate_detect(config_path: str, tools_dir: str) -> None:
     from dataclasses import asdict
 
     config = load_config(Path(config_path))
-    outdated = detect_outdated_tools(Path(tools_dir), config)
+    outdated = detect_outdated_tools(Path(tools_dir), config, max_tools=max_tools)
     click.echo(json.dumps([asdict(o) for o in outdated]))
 
 
@@ -400,8 +402,9 @@ def autoupdate(
     PRs/branches, run the edit agent, and write workflow marker files.
 
     Writes to $GITHUB_WORKSPACE (or the checkout root):
-      .autoupdate-skip     — present iff this run should not produce a PR
-      .autoupdate-reopen   — contains the closed PR number to reopen
+      .autoupdate-skip  — present iff this run should not produce a PR
+      .autoupdate-pr    — number of an existing open or closed-unmerged PR
+                          to update/reopen instead of creating a new one
     """
     config = load_config(Path(config_path))
     tool_dir_p = Path(tool_dir)
@@ -432,8 +435,8 @@ def autoupdate(
     if not decision.proceed:
         _skip(decision.reason)
         return
-    if decision.reopen_pr is not None:
-        (ws / ".autoupdate-reopen").write_text(str(decision.reopen_pr))
+    if decision.existing_pr is not None:
+        (ws / ".autoupdate-pr").write_text(str(decision.existing_pr))
 
     logger.info(
         "Updating tools/%s: %s %s → %s",
