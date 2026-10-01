@@ -461,6 +461,7 @@ def update_tool(
     src_tool_dir: Path,
     output_dir: Path,
     tool_dir_name: str,
+    system_template: str = "update_system.txt",
     max_iterations_override: int | None = None,
     max_validation_retries_override: int | None = None,
 ) -> tuple[GeneratedTool, AgentResult, ValidationResult, int]:
@@ -487,7 +488,7 @@ def update_tool(
     # unchanged files (including binaries) carry over into the PR intact.
     existing_files = read_tool_files(output_dir)
 
-    system_prompt = _load_template("update_system.txt").render()
+    system_prompt = _load_template(system_template).render()
     user_prompt = _build_update_user_prompt(
         description, links, plan_markdown, existing_files, tool_dir_name,
     )

@@ -49,6 +49,20 @@ class LabelConfig:
 
 
 @dataclass
+class AutoupdateConfig:
+    """Config for the scheduled autoupdate flow (`gxy-tool-bot autoupdate`).
+
+    Disabled by default — a repo opts in with an `autoupdate:` section.
+    `skip` / `skip_file` list tool dirs to never touch; `channels` are the
+    conda channels queried for latest package versions.
+    """
+    enabled: bool = False
+    channels: list[str] = field(default_factory=lambda: ["bioconda", "conda-forge"])
+    skip: list[str] = field(default_factory=list)
+    skip_file: str | None = None
+
+
+@dataclass
 class BotConfig:
     api: ApiConfig
     exemplars: list[ExemplarConfig]
@@ -73,6 +87,7 @@ class BotConfig:
     # feed findings → agent fixes. Default 1 (one fix round). 0 disables
     # integrated review even if integrated_review_mode is set.
     max_review_fix_rounds: int = 1
+    autoupdate: AutoupdateConfig = field(default_factory=AutoupdateConfig)
 
 
 def load_config(path: Path) -> BotConfig:
@@ -128,6 +143,14 @@ def load_config(path: Path) -> BotConfig:
         review=labels_raw.get("review", "review"),
     )
 
+    autoupdate_raw = raw.get("autoupdate") or {}
+    autoupdate = AutoupdateConfig(
+        enabled=autoupdate_raw.get("enabled", False),
+        channels=autoupdate_raw.get("channels", ["bioconda", "conda-forge"]),
+        skip=autoupdate_raw.get("skip", []),
+        skip_file=autoupdate_raw.get("skip_file"),
+    )
+
     allowed_maintainers = raw.get("allowed_maintainers")
     tool_owner = raw.get("tool_owner")
     agent_notes = raw.get("agent_notes", False)
@@ -145,4 +168,5 @@ def load_config(path: Path) -> BotConfig:
         agent_notes=agent_notes,
         integrated_review_mode=integrated_review_mode,
         max_review_fix_rounds=max_review_fix_rounds,
+        autoupdate=autoupdate,
     )

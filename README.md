@@ -84,6 +84,18 @@ integrated_review_mode: never
 # Max review→fix rounds in integrated mode. Each round: review → feed findings → agent fixes.
 # Default 1. 0 disables integrated review even if integrated_review_mode is set.
 max_review_fix_rounds: 1
+
+# Scheduled autoupdates (see "Scheduled autoupdates" below): detects newer
+# versions of each tool's main conda requirement and opens a PR per tool.
+# Disabled unless enabled: true.
+autoupdate:
+  enabled: false
+  channels:                        # conda channels checked for latest versions
+    - bioconda
+    - conda-forge
+  skip:                            # tool dirs (or XML paths) never to update
+    - my_tool
+  skip_file: autoupdate-skip.txt   # optional file with one entry per line
 ```
 
 ### 3. Create GitHub labels
@@ -118,6 +130,7 @@ Copy the workflow templates from the [`workflows/`](workflows/) directory in thi
 - **`on-ready-to-implement.yml`** → `.github/workflows/gxy-on-ready-to-implement.yml` — triggers when `ready-to-implement` or `retry-generate` label is added; runs the generator and opens a PR
 - **`on-pr-feedback.yml`** → `.github/workflows/gxy-on-pr-feedback.yml` — triggers when `address-feedback` label is added to a PR; reads review comments and CI failures, pushes fixes as new commits
 - **`on-pr-review.yml`** → `.github/workflows/gxy-on-pr-review.yml` — triggers when `review` label is added to a PR; reviews tool files and posts structured findings as a comment
+- **`autoupdate.yml`** → `.github/workflows/gxy-autoupdate.yml` — runs on a cron schedule (edit the `cron:` line to set the frequency); detects outdated tool versions and opens one PR per tool. Requires `autoupdate.enabled: true` in `.gxy-tool-bot.yml`
 
 > **CI artifact assumption:** The feedback workflow fetches CI failure details from GitHub Actions artifacts. This assumes the CI workflow uploads failure reports as artifacts (e.g. lint reports as `.txt` files, planemo test results as `.json`), following the same conventions as the [tools-iuc](https://github.com/galaxyproject/tools-iuc) repo's `pr.yaml` workflow. If your repo uses a different CI setup that doesn't upload artifacts on failure, the bot will not be able to include CI failure details in its feedback context.
 
@@ -154,6 +167,24 @@ Make sure Actions are enabled: Settings → Actions → General → "Allow all a
 3. Check the Actions tab — the planning workflow should run
 4. After the plan is posted, add the `ready-to-implement` label
 5. The generation workflow should run and open a PR
+
+## Scheduled autoupdates
+
+`autoupdate.yml` runs on a cron schedule and is the one flow with no issue and no plan-approval step — the PR it opens *is* the review gate, like [planemo-autoupdate](https://github.com/planemo-autoupdate/autoupdate). On each run it:
+
+1. Scans `tools/*/` for the main conda requirement — the `<requirement>` whose version is `@TOOL_VERSION@` (or `token_tool_version="..."`), falling back to the package matching the dir name.
+2. Queries the configured conda channels for the latest version of that package.
+3. For each outdated tool, runs the update agent to apply the bump *and* check upstream for breaking changes and new parameters — the thing a mechanical version bump can't do.
+4. Opens one PR per tool titled `<tool_dir>: update tool wrapper to X.Y.Z`. The `<tool_dir>:` prefix means the `address-feedback` flow works on these PRs automatically.
+
+Dedup rules (mirroring planemo-autoupdate, branch `tool-bot/autoupdate-<dir>`):
+
+- An **open** PR on the tool's autoupdate branch → skipped.
+- A **closed, unmerged** autoupdate PR → a newer detected version reopens it; the same or an older version stays closed. So maintainers decline a specific version by closing the PR without deleting the branch.
+- A branch whose last commit wasn't authored by the bot → never overwritten; the bot comments on the PR saying how to re-enable updates (delete the branch).
+- Add tools to `autoupdate.skip` (or `autoupdate.skip_file`, one entry per line — tool dir names or `tools/<dir>/<file>.xml` paths like planemo-autoupdate's lists) to exclude them entirely.
+
+The check frequency lives in the workflow's `cron:` line — GitHub reads schedules from the workflow file, not the bot config. Everything else (`enabled`, `channels`, `skip`, `skip_file`) is in `.gxy-tool-bot.yml`. Failed runs file or append to an "Autoupdate error: `<tool>`" issue.
 
 ## Philosophy & Design Decisions
 

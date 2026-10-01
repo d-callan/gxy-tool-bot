@@ -126,6 +126,38 @@ predicates hard-code the default label names (`tool-request`,
 `tool-update`). Renaming a label in `.gxy-tool-bot.yml` means updating the
 matching predicate in `on-tool-request.yml` (and the issue template) too.
 
+### The autoupdate flow
+
+`workflows/autoupdate.yml` runs scheduled version bumps with no issue or
+plan step. `gxy_tool_bot/autoupdate.py` owns the logic; the workflow is
+thin shell over two CLI commands:
+
+- `gxy-tool-bot autoupdate-detect` scans `tools/*/` and prints a JSON
+  array of outdated tools (main requirement behind the latest version on
+  the configured conda channels, via the anaconda.org package API — no
+  planemo dependency). The workflow feeds it into a per-tool matrix job.
+- `gxy-tool-bot autoupdate --tool-dir tools/<dir>` re-checks that one dir,
+  applies the dedup rules in `check_autoupdate_pr_state` (needs
+  `GitHubClient.list_prs`), then calls `update_tool` with
+  `system_template="autoupdate_system.txt"` — a narrowed prompt that tells
+  the agent to check upstream for breaking changes and new parameters.
+  Plan/description/link inputs are synthesized by `build_autoupdate_*`
+  helpers since there's no issue to parse.
+
+Dedup semantics mirror planemo-autoupdate: an open PR on
+`tool-bot/autoupdate-<dir>` skips the run; a closed unmerged PR only
+reopens when the detected version beats the declined one (parsed from the
+PR title); a branch whose last commit isn't by `gxy-tool-bot` is never
+overwritten. Results reach the workflow through marker files in
+`$GITHUB_WORKSPACE` (`.autoupdate-skip`, `.autoupdate-reopen`) plus the
+same `generated/.tool-name` / `.commit-msg` / `.pr-body` outputs the other
+flows use.
+
+Config lives under `autoupdate:` (`enabled`, `channels`, `skip`,
+`skip_file`) — the run frequency itself can only live in the workflow's
+`cron:` line. Budget knobs (`max_tool_iterations`, `max_validation_retries`,
+`validation_retries_per_extra_tool_xml`) apply as-is.
+
 ## Running Tests
 
 ```bash
