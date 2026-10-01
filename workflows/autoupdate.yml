@@ -57,18 +57,25 @@ jobs:
       - run: pip install --no-cache-dir gxy-tool-bot==0.1.2
       - name: Detect outdated tools
         id: detect
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TOOL_DIR_INPUT: ${{ inputs.tool_dir }}
+          MAX_TOOLS_INPUT: ${{ inputs.max_tools }}
         run: |
-          MAX_TOOLS_ARG=""
-          if [ -n "${{ inputs.max_tools }}" ]; then
-            MAX_TOOLS_ARG="--max-tools ${{ inputs.max_tools }}"
+          ARGS=()
+          if [ -n "$MAX_TOOLS_INPUT" ]; then
+            ARGS+=(--max-tools "$MAX_TOOLS_INPUT")
           fi
+          # Restrict to a single tool dir when triggered manually with one.
+          if [ -n "$TOOL_DIR_INPUT" ]; then
+            ARGS+=(--tool-dir "$TOOL_DIR_INPUT")
+          fi
+          # With GH_TOKEN set, detect filters out tools an open/declined PR
+          # or a manually-edited branch already covers, so skipped tools
+          # don't consume max_tools slots every run.
           TOOLS=$(gxy-tool-bot autoupdate-detect \
             --config .gxy-tool-bot.yml \
-            --tools-dir tools $MAX_TOOLS_ARG)
-          # Restrict to a single tool dir when triggered manually with one.
-          if [ -n "${{ inputs.tool_dir }}" ]; then
-            TOOLS=$(echo "$TOOLS" | jq -c '[.[] | select(.tool_dir == "${{ inputs.tool_dir }}")]')
-          fi
+            --tools-dir tools "${ARGS[@]}")
           echo "$TOOLS"
           echo "tools=$TOOLS" >> $GITHUB_OUTPUT
 
@@ -107,13 +114,15 @@ jobs:
           GXY_TOOL_BOT_API_KEY: ${{ secrets.GXY_TOOL_BOT_API_KEY }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REF_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          MAX_ITERATIONS_INPUT: ${{ inputs.max_iterations }}
+          MAX_RETRIES_INPUT: ${{ inputs.max_retries }}
         run: |
-          OVERRIDE_ARGS=""
-          if [ -n "${{ inputs.max_iterations }}" ]; then
-            OVERRIDE_ARGS="$OVERRIDE_ARGS --max-iterations ${{ inputs.max_iterations }}"
+          OVERRIDE_ARGS=()
+          if [ -n "$MAX_ITERATIONS_INPUT" ]; then
+            OVERRIDE_ARGS+=(--max-iterations "$MAX_ITERATIONS_INPUT")
           fi
-          if [ -n "${{ inputs.max_retries }}" ]; then
-            OVERRIDE_ARGS="$OVERRIDE_ARGS --max-retries ${{ inputs.max_retries }}"
+          if [ -n "$MAX_RETRIES_INPUT" ]; then
+            OVERRIDE_ARGS+=(--max-retries "$MAX_RETRIES_INPUT")
           fi
           # Re-detects the version and applies the PR/branch dedup rules;
           # writes .autoupdate-skip when there's nothing to do.
@@ -124,7 +133,7 @@ jobs:
             --commit-msg-path $GITHUB_WORKSPACE/.commit-msg \
             --pr-body-path $GITHUB_WORKSPACE/.pr-body \
             --pr-title-path $GITHUB_WORKSPACE/.pr-title \
-            $OVERRIDE_ARGS
+            "${OVERRIDE_ARGS[@]}"
       - name: Check skip marker
         id: check
         if: steps.autoupdate.outcome == 'success'

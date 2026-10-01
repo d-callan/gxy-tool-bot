@@ -13,10 +13,22 @@ from pathlib import Path
 import click
 import httpx
 
-from gxy_tool_bot.config import load_config
+from gxy_tool_bot.address_feedback import address_feedback, update_tool
 from gxy_tool_bot.api_client import ApiClient
+from gxy_tool_bot.autoupdate import (
+    BRANCH_PREFIX,
+    _checkout_branch,
+    build_autoupdate_commit_msg,
+    build_autoupdate_pr_body,
+    check_autoupdate_pr_state,
+    check_tool_dir,
+    detect_outdated_tools,
+    load_shed_metadata,
+    run_autoupdate,
+    skip_dirs,
+)
+from gxy_tool_bot.config import load_config
 from gxy_tool_bot.generator import GeneratedTool, generate_commit_message, generate_tool
-from gxy_tool_bot.validation import ValidationResult
 from gxy_tool_bot.github_client import GitHubClient
 from gxy_tool_bot.planner import (
     PLAN_MARKER,
@@ -26,17 +38,7 @@ from gxy_tool_bot.planner import (
     parse_issue_body,
     parse_update_issue_body,
 )
-from gxy_tool_bot.address_feedback import address_feedback, update_tool
-from gxy_tool_bot.autoupdate import (
-    BRANCH_PREFIX,
-    build_autoupdate_commit_msg,
-    build_autoupdate_pr_body,
-    check_autoupdate_pr_state,
-    check_tool_dir,
-    detect_outdated_tools,
-    load_shed_metadata,
-    run_autoupdate,
-)
+from gxy_tool_bot.validation import ValidationResult
 
 logger = logging.getLogger(__name__)
 
@@ -365,16 +367,29 @@ def generate(issue: int, config_path: str, output_dir: str, actor: str | None, c
 @click.option("--tools-dir", "tools_dir", type=click.Path(exists=True), default="tools")
 @click.option("--max-tools", "max_tools", type=int, default=None,
               help="Cap tools reported this run (default: autoupdate.max_tools_per_run)")
-def autoupdate_detect(config_path: str, tools_dir: str, max_tools: int | None) -> None:
+@click.option("--tool-dir", "tool_dir", default=None,
+              help="Only check this single dir name under --tools-dir")
+def autoupdate_detect(config_path: str, tools_dir: str, max_tools: int | None, tool_dir: str | None) -> None:
     """Scan tools/ for outdated versions and print them as a JSON array.
 
     Intended for the scheduled autoupdate workflow's matrix step; prints []
-    when autoupdate is disabled or nothing is outdated.
+    when autoupdate is disabled or nothing is outdated. When GH_TOKEN (or
+    GITHUB_TOKEN) is set, tools that already have a covering PR or a
+    manually-edited branch are filtered out so they don't consume cap
+    slots; the per-tool `autoupdate` job re-checks dedup regardless.
     """
     from dataclasses import asdict
 
     config = load_config(Path(config_path))
-    outdated = detect_outdated_tools(Path(tools_dir), config, max_tools=max_tools)
+    gh_token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    gh = GitHubClient(gh_token, config.repo) if gh_token else None
+    try:
+        outdated = detect_outdated_tools(
+            Path(tools_dir), config, max_tools=max_tools, gh=gh, tool_dir=tool_dir,
+        )
+    finally:
+        if gh is not None:
+            gh.close()
     click.echo(json.dumps([asdict(o) for o in outdated]))
 
 
@@ -424,6 +439,11 @@ def autoupdate(
         click.echo("Error: GH_TOKEN environment variable not set", err=True)
         sys.exit(1)
 
+    skip_base = tool_dir_p.parent.parent if tool_dir_p.parent.name == "tools" else Path(".")
+    if name in skip_dirs(config, skip_base):
+        _skip("tool dir is excluded by autoupdate.skip / skip_file")
+        return
+
     with httpx.Client(timeout=30) as http:
         outdated = check_tool_dir(tool_dir_p, config, http)
     if outdated is None:
@@ -437,6 +457,9 @@ def autoupdate(
         return
     if decision.existing_pr is not None:
         (ws / ".autoupdate-pr").write_text(str(decision.existing_pr))
+        # Stage from the existing PR branch so fixes already pushed to it
+        # (e.g. bot-authored feedback commits) aren't wiped by the rebuild.
+        _checkout_branch(f"{BRANCH_PREFIX}{name}")
 
     logger.info(
         "Updating tools/%s: %s %s → %s",
@@ -643,6 +666,7 @@ def review(pr_number: int, config_path: str, tool_dir: str, actor: str | None) -
 def eval(config_path: str, cases_dir: str, filters: tuple[str, ...], output_path: str | None, work_dir: str | None, no_planemo: bool) -> None:
     """Run eval cases against real LLM calls and report results."""
     import tempfile
+
     from gxy_tool_bot.eval_harness import (
         format_report_text,
         load_cases,

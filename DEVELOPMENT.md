@@ -135,19 +135,26 @@ thin shell over two CLI commands:
 - `gxy-tool-bot autoupdate-detect` scans `tools/*/` and prints a JSON
   array of outdated tools (main requirement behind the latest version on
   the configured conda channels, via the anaconda.org package API — no
-  planemo dependency). The workflow feeds it into a per-tool matrix job.
-- `gxy-tool-bot autoupdate --tool-dir tools/<dir>` re-checks that one dir,
-  applies the dedup rules in `check_autoupdate_pr_state` (needs
-  `GitHubClient.list_prs`), then calls `update_tool` with
-  `system_template="autoupdate_system.txt"` — a narrowed prompt that tells
-  the agent to check upstream for breaking changes and new parameters.
-  Plan/description/link inputs are synthesized by `build_autoupdate_*`
-  helpers since there's no issue to parse.
+  planemo dependency). `--tool-dir` restricts the scan to one dir (manual
+  dispatch); when `GH_TOKEN`/`GITHUB_TOKEN` is set it also runs the dedup
+  rules so skipped tools don't eat `max_tools` slots every run. The
+  workflow feeds the result into a per-tool matrix job.
+- `gxy-tool-bot autoupdate --tool-dir tools/<dir>` re-checks that one dir
+  (still honoring the skip list), applies the dedup rules in
+  `check_autoupdate_pr_state` (needs `GitHubClient.list_prs`), then calls
+  `update_tool` with `system_template="autoupdate_system.txt"` — a
+  narrowed prompt that tells the agent to check upstream for breaking
+  changes and new parameters. Plan/description/link inputs are
+  synthesized by `build_autoupdate_*` helpers since there's no issue to
+  parse. When an existing autoupdate PR is being updated/reopened, the
+  CLI checks out its branch first so the staged dir keeps any
+  bot-authored fixes already pushed to it.
 
 Dedup semantics mirror planemo-autoupdate: an open PR on
 `tool-bot/autoupdate-<dir>` skips the run; a closed unmerged PR only
 reopens when the detected version beats the declined one (parsed from the
-PR title); a branch whose last commit isn't by `gxy-tool-bot` is never
+PR title, and only while its branch still exists — deleting it
+re-enables); a branch whose last commit isn't by `gxy-tool-bot` is never
 overwritten. Results reach the workflow through marker files in
 `$GITHUB_WORKSPACE` (`.autoupdate-skip`, `.autoupdate-pr`) plus the
 same `generated/.tool-name` / `.commit-msg` / `.pr-body` outputs the other

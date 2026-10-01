@@ -117,17 +117,56 @@ def _version_key(version: str) -> tuple:
     """Rough version ordering key: numeric segments compare numerically."""
     key: list[tuple[int, int, str]] = []
     for part in re.split(r"[.\-_+~]", version):
-        key.append((0, int(part), "") if part.isdigit() else (1, 0, part))
+        for sub in re.findall(r"[0-9]+|[a-zA-Z]+", part):
+            key.append((0, int(sub), "") if sub.isdigit() else (1, 0, sub.lower()))
     return tuple(key)
+
+
+_PRERELEASE_MARKERS = ("a", "alpha", "b", "beta", "rc", "c", "pre", "preview", "dev")
+
+
+def _is_prerelease_segment(seg: tuple) -> bool:
+    match = re.match(r"[a-z]+", seg[2])
+    return bool(match) and match.group(0) in _PRERELEASE_MARKERS
 
 
 def is_newer(latest: str, current: str) -> bool:
     if latest == current:
         return False
     try:
-        return _version_key(latest) > _version_key(current)
+        lk, ck = _version_key(latest), _version_key(current)
     except (TypeError, ValueError):
         return True
+    if lk == ck:
+        return False
+    common = min(len(lk), len(ck))
+    for i in range(common):
+        a, b = lk[i], ck[i]
+        if a == b:
+            continue
+        if a[0] != b[0]:
+            # Numeric vs non-numeric at the same position: a prerelease tag
+            # loses to a bare number (1.0.1 > 1.0rc1); other suffixes
+            # (post, rev) win.
+            nonnum = a if a[0] == 1 else b
+            if _is_prerelease_segment(nonnum):
+                return a[0] == 0
+            return a[0] == 1
+        return a > b
+    # One key is a strict prefix of the other. A prerelease extra segment
+    # sorts before the bare version (1.0-rc1 < 1.0); anything else — a
+    # deeper numeric release or a post-release — is newer (1.4.1, 1.4.post1).
+    longer_is_latest = len(lk) > len(ck)
+    extra = (lk if longer_is_latest else ck)[common]
+    if extra[0] == 1 and _is_prerelease_segment(extra):
+        return not longer_is_latest
+    return longer_is_latest
+
+
+# Package metadata comes from a remote API and lands verbatim in the
+# agent's plan/prompt — anything that isn't a plausible version string
+# (e.g. text containing newlines or markup) is rejected.
+_VERSION_ALLOWED_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+~!\-]{0,127}$")
 
 
 def latest_package_version(
@@ -144,6 +183,12 @@ def latest_package_version(
             continue
         resp.raise_for_status()
         version = resp.json().get("latest_version")
+        if version and not _VERSION_ALLOWED_RE.match(version):
+            logger.warning(
+                "Ignoring implausible latest_version %r for %s on %s",
+                version, package, channel,
+            )
+            continue
         if version and (best_version is None or _version_key(version) > _version_key(best_version)):
             best_version, best_channel = version, channel
     return best_version, best_channel
@@ -216,12 +261,19 @@ def detect_outdated_tools(
     config: BotConfig,
     client: httpx.Client | None = None,
     max_tools: int | None = None,
+    gh=None,
+    tool_dir: str | None = None,
 ) -> list[OutdatedTool]:
     """Scan tools/ for dirs whose main requirement has a newer conda version.
 
-    At most ``max_tools`` (or ``autoupdate.max_tools_per_run`` when unset;
-    0 means no cap) results, in dir-name order — bounds the number of agent
-    runs a single workflow run can trigger."""
+    ``tool_dir`` restricts the scan to a single dir name (manual dispatch).
+    When ``gh`` (a GitHubClient) is given, each outdated dir is also run
+    through ``check_autoupdate_pr_state`` so tools a PR or manual branch
+    already covers don't consume cap slots — otherwise the same skipped
+    tools would be re-selected every run and later tools would never get
+    an update job. The cap is then applied to actionable tools only:
+    at most ``max_tools`` (or ``autoupdate.max_tools_per_run`` when unset;
+    0 means no cap) results, in dir-name order."""
     if not config.autoupdate.enabled:
         return []
     cap = max_tools if max_tools is not None else config.autoupdate.max_tools_per_run
@@ -229,19 +281,42 @@ def detect_outdated_tools(
     own_client = client is None
     client = client or httpx.Client(timeout=30)
     try:
+        if tool_dir is not None:
+            name = tool_dir.strip("/")
+            if name.startswith("tools/"):
+                name = name[len("tools/"):]
+            if "/" in name or not name or name.startswith("."):
+                raise ValueError(f"invalid tool dir name: {tool_dir!r}")
+            single = tools_dir / name
+            if not single.is_dir():
+                raise ValueError(f"tool dir not found: {single}")
+            candidates = [] if name in skipped else [single]
+        else:
+            candidates = [
+                c for c in sorted(tools_dir.iterdir())
+                if c.is_dir() and not c.name.startswith(".") and c.name not in skipped
+            ]
         outdated: list[OutdatedTool] = []
-        for child in sorted(tools_dir.iterdir()):
-            if not child.is_dir() or child.name.startswith(".") or child.name in skipped:
-                continue
+        for child in candidates:
             result = check_tool_dir(child, config, client)
             if result is not None:
                 outdated.append(result)
-                if cap and len(outdated) >= cap:
-                    logger.info(
-                        "Reached max_tools_per_run=%d — %d tools returned",
-                        cap, len(outdated),
-                    )
-                    break
+        if gh is not None:
+            actionable: list[OutdatedTool] = []
+            for o in outdated:
+                decision = check_autoupdate_pr_state(gh, o.tool_dir, o.latest)
+                if decision.proceed:
+                    actionable.append(o)
+                else:
+                    logger.info("%s: not actionable — %s", o.tool_dir, decision.reason)
+            outdated = actionable
+        if cap:
+            if len(outdated) > cap:
+                logger.info(
+                    "Reached max_tools_per_run=%d — %d tools returned",
+                    cap, cap,
+                )
+            outdated = outdated[:cap]
         return outdated
     finally:
         if own_client:
@@ -285,6 +360,19 @@ def _last_commit_author(branch: str) -> str | None:
     return result.stdout.strip() or None
 
 
+def _checkout_branch(branch: str) -> None:
+    """Check out an existing remote branch into the working tree.
+
+    Used before staging a tool dir for an existing autoupdate PR, so the
+    staged content carries that branch's commits (e.g. bot-authored
+    feedback fixes) instead of being rebuilt from the default branch."""
+    subprocess.run(["git", "fetch", "origin", branch], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "checkout", "-B", branch, f"origin/{branch}"],
+        check=True, capture_output=True,
+    )
+
+
 def check_autoupdate_pr_state(
     gh,
     tool_dir_name: str,
@@ -292,8 +380,9 @@ def check_autoupdate_pr_state(
 ) -> AutoupdateDecision:
     """Decide whether an autoupdate run should proceed for a tool dir."""
     branch = f"{BRANCH_PREFIX}{tool_dir_name}"
+    branch_exists = _branch_exists(branch)
 
-    if _branch_exists(branch):
+    if branch_exists:
         author = _last_commit_author(branch)
         if author and author != BOT_AUTHOR:
             any_prs = gh.list_prs(branch, state="all")
@@ -324,11 +413,13 @@ def check_autoupdate_pr_state(
             False, f"open PR #{pr['number']} already covers {target or detected_latest}"
         )
 
+    # Deleting the branch is how maintainers re-enable autoupdates after
+    # declining — a closed-unmerged PR only counts while its branch lives.
     declined = [
         p for p in gh.list_prs(branch, state="closed")
         if p.get("merged_at") is None
     ]
-    if declined:
+    if declined and branch_exists:
         pr = declined[0]
         declined_version = _title_version(pr.get("title") or "")
         if declined_version and not is_newer(detected_latest, declined_version):
