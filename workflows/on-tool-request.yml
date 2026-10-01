@@ -11,6 +11,12 @@ jobs:
         contains(github.event.issue.labels.*.name, 'tool-update'))) ||
       (github.event.action == 'labeled' && github.event.label.name == 'retry-plan')
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    concurrency:
+      group: plan-${{ github.event.issue.number }}
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
       - name: Post status comment

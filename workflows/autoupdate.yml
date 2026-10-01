@@ -43,6 +43,11 @@ on:
         type: string
         default: ""
 
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
 jobs:
   detect:
     name: Detect outdated tools

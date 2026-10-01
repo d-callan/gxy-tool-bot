@@ -23,6 +23,17 @@ jobs:
     name: Address PR Feedback
     if: contains(github.event.pull_request.labels.*.name, 'address-feedback') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      actions: read
+      checks: read
+    # Shared group with on-pr-review: a review run must wait for a feedback
+    # run to finish pushing, or it reports findings on superseded files.
+    concurrency:
+      group: pr-${{ github.event.pull_request.number || inputs.pr_number }}
+      cancel-in-progress: false
     env:
       PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
     steps:
@@ -78,13 +89,15 @@ jobs:
           GXY_TOOL_BOT_API_KEY: ${{ secrets.GXY_TOOL_BOT_API_KEY }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REF_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          MAX_ITERATIONS_INPUT: ${{ inputs.max_iterations }}
+          MAX_RETRIES_INPUT: ${{ inputs.max_retries }}
         run: |
-          OVERRIDE_ARGS=""
-          if [ -n "${{ inputs.max_iterations }}" ]; then
-            OVERRIDE_ARGS="$OVERRIDE_ARGS --max-iterations ${{ inputs.max_iterations }}"
+          OVERRIDE_ARGS=()
+          if [ -n "$MAX_ITERATIONS_INPUT" ]; then
+            OVERRIDE_ARGS+=(--max-iterations "$MAX_ITERATIONS_INPUT")
           fi
-          if [ -n "${{ inputs.max_retries }}" ]; then
-            OVERRIDE_ARGS="$OVERRIDE_ARGS --max-retries ${{ inputs.max_retries }}"
+          if [ -n "$MAX_RETRIES_INPUT" ]; then
+            OVERRIDE_ARGS+=(--max-retries "$MAX_RETRIES_INPUT")
           fi
           gxy-tool-bot address-feedback \
             --pr $PR_NUMBER \
@@ -92,7 +105,7 @@ jobs:
             --tool-dir tools/${{ steps.find_tool_dir.outputs.tool_dir }} \
             --actor ${{ github.event.sender.login || 'manual' }} \
             --commit-msg-path $GITHUB_WORKSPACE/.commit-msg \
-            $OVERRIDE_ARGS
+            "${OVERRIDE_ARGS[@]}"
       - name: Format updated XML with planemo
         if: steps.address.outcome == 'success'
         run: |
