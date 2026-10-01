@@ -126,6 +126,48 @@ predicates hard-code the default label names (`tool-request`,
 `tool-update`). Renaming a label in `.gxy-tool-bot.yml` means updating the
 matching predicate in `on-tool-request.yml` (and the issue template) too.
 
+### The autoupdate flow
+
+`workflows/autoupdate.yml` runs scheduled version bumps with no issue or
+plan step. `gxy_tool_bot/autoupdate.py` owns the logic; the workflow is
+thin shell over two CLI commands:
+
+- `gxy-tool-bot autoupdate-detect` scans `tools/*/` and prints a JSON
+  array of outdated tools (main requirement behind the latest version on
+  the configured conda channels, via the anaconda.org package API — no
+  planemo dependency). `--tool-dir` restricts the scan to one dir (manual
+  dispatch); when `GH_TOKEN`/`GITHUB_TOKEN` is set it also runs the dedup
+  rules so skipped tools don't eat `max_tools` slots every run. The
+  workflow feeds the result into a per-tool matrix job.
+- `gxy-tool-bot autoupdate --tool-dir tools/<dir>` re-checks that one dir
+  (still honoring the skip list), applies the dedup rules in
+  `check_autoupdate_pr_state` (needs `GitHubClient.list_prs`), then calls
+  `update_tool` with `system_template="autoupdate_system.txt"` — a
+  narrowed prompt that tells the agent to check upstream for breaking
+  changes and new parameters. Plan/description/link inputs are
+  synthesized by `build_autoupdate_*` helpers since there's no issue to
+  parse. When an existing autoupdate PR is being updated/reopened, the
+  CLI checks out its branch first so the staged dir keeps any
+  bot-authored fixes already pushed to it.
+
+Dedup semantics mirror planemo-autoupdate: an open PR on
+`tool-bot/autoupdate-<dir>` skips the run; a closed unmerged PR only
+reopens when the detected version beats the declined one (parsed from the
+PR title, and only while its branch still exists — deleting it
+re-enables); a branch whose last commit isn't by `gxy-tool-bot` is never
+overwritten. Results reach the workflow through marker files in
+`$GITHUB_WORKSPACE` (`.autoupdate-skip`, `.autoupdate-pr`) plus the
+same `generated/.tool-name` / `.commit-msg` / `.pr-body` outputs the other
+flows use. An open PR isn't just skipped: when a newer version appears,
+new commits fold into it (and its title is re-synced).
+
+Config lives under `autoupdate:` (`enabled`, `channels`, `skip`,
+`skip_file`, `max_tools_per_run` — blast-radius cap, default 10; the
+matrix additionally caps concurrency with `max-parallel`) — the run
+frequency itself can only live in the workflow's `cron:` line. Budget
+knobs (`max_tool_iterations`, `max_validation_retries`,
+`validation_retries_per_extra_tool_xml`) apply as-is.
+
 ## Running Tests
 
 ```bash

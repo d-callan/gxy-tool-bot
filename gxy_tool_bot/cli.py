@@ -11,11 +11,24 @@ import sys
 from pathlib import Path
 
 import click
+import httpx
 
-from gxy_tool_bot.config import load_config
+from gxy_tool_bot.address_feedback import address_feedback, update_tool
 from gxy_tool_bot.api_client import ApiClient
+from gxy_tool_bot.autoupdate import (
+    BRANCH_PREFIX,
+    _checkout_branch,
+    build_autoupdate_commit_msg,
+    build_autoupdate_pr_body,
+    check_autoupdate_pr_state,
+    check_tool_dir,
+    detect_outdated_tools,
+    load_shed_metadata,
+    run_autoupdate,
+    skip_dirs,
+)
+from gxy_tool_bot.config import load_config
 from gxy_tool_bot.generator import GeneratedTool, generate_commit_message, generate_tool
-from gxy_tool_bot.validation import ValidationResult
 from gxy_tool_bot.github_client import GitHubClient
 from gxy_tool_bot.planner import (
     PLAN_MARKER,
@@ -25,14 +38,16 @@ from gxy_tool_bot.planner import (
     parse_issue_body,
     parse_update_issue_body,
 )
-from gxy_tool_bot.address_feedback import address_feedback, update_tool
+from gxy_tool_bot.validation import ValidationResult
 
 logger = logging.getLogger(__name__)
 
 
-def _contributing_section(issue: int, tool_dir: str, repo: str | None = None) -> str:
+def _contributing_section(
+    issue: int | None, tool_dir: str, repo: str | None = None, branch: str | None = None,
+) -> str:
     """Build a markdown section with instructions for maintainers to check out the tool locally."""
-    branch = f"tool-bot/issue-{issue}"
+    branch = branch or f"tool-bot/issue-{issue}"
     if repo:
         repo_short = repo.split("/")[-1]
         fork_cmd = f"gh repo fork {repo} --clone\ncd {repo_short}"
@@ -347,6 +362,153 @@ def generate(issue: int, config_path: str, output_dir: str, actor: str | None, c
     )
 
 
+@cli.command(name="autoupdate-detect")
+@click.option("--config", "config_path", type=click.Path(exists=True), default=".gxy-tool-bot.yml")
+@click.option("--tools-dir", "tools_dir", type=click.Path(exists=True), default="tools")
+@click.option("--max-tools", "max_tools", type=int, default=None,
+              help="Cap tools reported this run (default: autoupdate.max_tools_per_run)")
+@click.option("--tool-dir", "tool_dir", default=None,
+              help="Only check this single dir name under --tools-dir")
+def autoupdate_detect(config_path: str, tools_dir: str, max_tools: int | None, tool_dir: str | None) -> None:
+    """Scan tools/ for outdated versions and print them as a JSON array.
+
+    Intended for the scheduled autoupdate workflow's matrix step; prints []
+    when autoupdate is disabled or nothing is outdated. When GH_TOKEN (or
+    GITHUB_TOKEN) is set, tools that already have a covering PR or a
+    manually-edited branch are filtered out so they don't consume cap
+    slots; the per-tool `autoupdate` job re-checks dedup regardless.
+    """
+    from dataclasses import asdict
+
+    config = load_config(Path(config_path))
+    gh_token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    gh = GitHubClient(gh_token, config.repo) if gh_token else None
+    try:
+        outdated = detect_outdated_tools(
+            Path(tools_dir), config, max_tools=max_tools, gh=gh, tool_dir=tool_dir,
+        )
+    finally:
+        if gh is not None:
+            gh.close()
+    click.echo(json.dumps([asdict(o) for o in outdated]))
+
+
+@cli.command()
+@click.option("--tool-dir", "tool_dir", type=click.Path(exists=True), required=True,
+              help="Path to the tool directory (e.g. tools/seqtk)")
+@click.option("--config", "config_path", type=click.Path(exists=True), default=".gxy-tool-bot.yml")
+@click.option("--output", "output_dir", type=click.Path(), default="generated/")
+@click.option("--commit-msg-path", "commit_msg_path", type=click.Path(), default=None,
+              help="Path to write the commit message")
+@click.option("--pr-body-path", "pr_body_path", type=click.Path(), default=None,
+              help="Path to write the PR body")
+@click.option("--pr-title-path", "pr_title_path", type=click.Path(), default=None,
+              help="Path to write the PR title")
+@click.option("--max-iterations", "max_iterations", type=int, default=None,
+              help="Override max tool iterations per round (default: config)")
+@click.option("--max-retries", "max_retries", type=int, default=None,
+              help="Override max validation retry rounds (default: config or scaled)")
+def autoupdate(
+    tool_dir: str, config_path: str, output_dir: str,
+    commit_msg_path: str | None, pr_body_path: str | None, pr_title_path: str | None,
+    max_iterations: int | None, max_retries: int | None,
+) -> None:
+    """Auto-update one tool dir: verify it's outdated, dedup against existing
+    PRs/branches, run the edit agent, and write workflow marker files.
+
+    Writes to $GITHUB_WORKSPACE (or the checkout root):
+      .autoupdate-skip  — present iff this run should not produce a PR
+      .autoupdate-pr    — number of an existing open or closed-unmerged PR
+                          to update/reopen instead of creating a new one
+    """
+    config = load_config(Path(config_path))
+    tool_dir_p = Path(tool_dir)
+    name = tool_dir_p.name
+    ws = Path(os.environ.get("GITHUB_WORKSPACE", "."))
+
+    def _skip(reason: str) -> None:
+        click.echo(f"Skipping {name}: {reason}")
+        (ws / ".autoupdate-skip").write_text(reason + "\n")
+
+    api_key = os.environ.get(config.api.api_key_env)
+    if not api_key:
+        click.echo(f"Error: {config.api.api_key_env} environment variable not set", err=True)
+        sys.exit(1)
+    gh_token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    if not gh_token:
+        click.echo("Error: GH_TOKEN environment variable not set", err=True)
+        sys.exit(1)
+
+    skip_base = tool_dir_p.parent.parent if tool_dir_p.parent.name == "tools" else Path(".")
+    if name in skip_dirs(config, skip_base):
+        _skip("tool dir is excluded by autoupdate.skip / skip_file")
+        return
+
+    with httpx.Client(timeout=30) as http:
+        outdated = check_tool_dir(tool_dir_p, config, http)
+    if outdated is None:
+        _skip("no newer version detected")
+        return
+
+    with GitHubClient(gh_token, config.repo) as gh:
+        decision = check_autoupdate_pr_state(gh, name, outdated.latest)
+    if not decision.proceed:
+        _skip(decision.reason)
+        return
+    if decision.existing_pr is not None:
+        (ws / ".autoupdate-pr").write_text(str(decision.existing_pr))
+        # Stage from the existing PR branch so fixes already pushed to it
+        # (e.g. bot-authored feedback commits) aren't wiped by the rebuild.
+        _checkout_branch(f"{BRANCH_PREFIX}{name}")
+
+    logger.info(
+        "Updating tools/%s: %s %s → %s",
+        name, outdated.package, outdated.current, outdated.latest,
+    )
+    try:
+        generated, _result, validation, _retries = run_autoupdate(
+            tool_dir=tool_dir_p,
+            outdated=outdated,
+            config=config,
+            api_key=api_key,
+            output_dir=Path(output_dir),
+            max_iterations_override=max_iterations,
+            max_validation_retries_override=max_retries,
+        )
+    except Exception as exc:
+        click.echo(f"Autoupdate failed for {name}: {exc}", err=True)
+        logger.exception("Autoupdate failed for %s", name)
+        _skip(f"agent error: {exc}")
+        sys.exit(2)
+
+    if generated.give_up_reason:
+        _skip(f"agent gave up: {generated.give_up_reason}")
+        sys.exit(3)
+
+    (Path(output_dir) / ".tool-name").write_text(name)
+    title = f"{name}: update tool wrapper to {outdated.latest}"
+    if pr_title_path:
+        Path(pr_title_path).write_text(title)
+    if commit_msg_path:
+        Path(commit_msg_path).write_text(build_autoupdate_commit_msg(outdated))
+    if pr_body_path:
+        shed = load_shed_metadata(tool_dir_p)
+        body = build_autoupdate_pr_body(outdated, shed)
+        if not validation.valid:
+            body += (
+                "\n\n---\n\n## ⚠️ Validation Issues\n\n"
+                "The following validation issues were found:\n\n"
+            )
+            for err in validation.errors:
+                body += f"- {err}\n"
+        body += _contributing_section(
+            None, name, config.repo, branch=f"{BRANCH_PREFIX}{name}"
+        )
+        Path(pr_body_path).write_text(body)
+
+    click.echo(f"Updated {name} → {outdated.latest} ({len(generated.files)} files in {output_dir})")
+
+
 @cli.command(name="address-feedback")
 @click.option("--pr", "pr_number", type=int, required=True, help="GitHub PR number")
 @click.option("--config", "config_path", type=click.Path(exists=True), default=".gxy-tool-bot.yml")
@@ -504,6 +666,7 @@ def review(pr_number: int, config_path: str, tool_dir: str, actor: str | None) -
 def eval(config_path: str, cases_dir: str, filters: tuple[str, ...], output_path: str | None, work_dir: str | None, no_planemo: bool) -> None:
     """Run eval cases against real LLM calls and report results."""
     import tempfile
+
     from gxy_tool_bot.eval_harness import (
         format_report_text,
         load_cases,

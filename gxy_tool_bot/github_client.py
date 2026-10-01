@@ -130,6 +130,32 @@ class GitHubClient:
             return resp.json()
         return retry(_do)
 
+    def list_prs(self, head_branch: str, state: str = "open") -> list[dict]:
+        """List PRs whose head ref is ``head_branch`` (all states)."""
+        owner = self.repo.split("/", 1)[0]
+
+        def _do() -> list[dict]:
+            prs: list[dict] = []
+            page = 1
+            while True:
+                resp = self._client.get(
+                    f"https://api.github.com/repos/{self.repo}/pulls",
+                    params={
+                        "head": f"{owner}:{head_branch}",
+                        "state": state,
+                        "per_page": 100,
+                        "page": page,
+                    },
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                if not data:
+                    break
+                prs.extend(data)
+                page += 1
+            return prs
+        return retry(_do)
+
     def get_pr_comments(self, pr_number: int) -> list[Comment]:
         """Fetch all issue-level comments on a PR (not review comments)."""
         return self.get_issue_comments(pr_number)
