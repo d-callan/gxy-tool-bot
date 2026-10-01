@@ -275,7 +275,7 @@ def run_agent_loop(
             ]
             messages.append(assistant_msg)
 
-            for tc in response.tool_calls:
+            for call_index, tc in enumerate(response.tool_calls):
                 logger.debug("Tool call: %s(%s)", tc.name, tc.arguments)
                 tool_def = tool_map.get(tc.name)
                 if tool_def is None:
@@ -328,12 +328,52 @@ def run_agent_loop(
                 if result.startswith("Gave up:"):
                     final_content = result
                     terminated_naturally = True
+                    # Calls after give_up never run — stub their results so
+                    # every tool_call in the history has a matching result
+                    # (consumers reuse messages for review/fix rounds).
+                    for skipped in response.tool_calls[call_index + 1:]:
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": skipped.id,
+                            "content": "Skipped: the agent gave up earlier in this batch.",
+                        })
                     break
+
+            if terminated_naturally:
+                break
+            if response.finish_reason == "length":
+                # The response hit the model's output limit mid-generation —
+                # the last tool call's arguments may be incomplete. Give the
+                # agent a clear signal instead of a confusing args error.
+                # Keep the partial content too so a truncation on the final
+                # iteration still yields a usable answer.
+                final_content = response.content or ""
+                messages.append({
+                    "role": "user",
+                    "content": (
+                        "Your previous response was cut off by the model's output length "
+                        "limit — the last tool call may have incomplete arguments. "
+                        "Retry it with smaller content (e.g. write files in smaller pieces)."
+                    ),
+                })
         else:
-            # No tool calls — this is the final answer
-            final_content = response.content or ""
-            terminated_naturally = True
-            break
+            # No tool calls — this is the final answer, unless the model's
+            # output limit cut it off mid-response, in which case let the
+            # agent finish rather than returning truncated content.
+            if response.finish_reason == "length":
+                final_content = response.content or ""
+                messages.append({"role": "assistant", "content": response.content or ""})
+                messages.append({
+                    "role": "user",
+                    "content": (
+                        "Your previous reply was cut off by the model's output length limit. "
+                        "Finish now — keep the rest brief."
+                    ),
+                })
+            else:
+                final_content = response.content or ""
+                terminated_naturally = True
+                break
 
     if not terminated_naturally:
         final_content = (

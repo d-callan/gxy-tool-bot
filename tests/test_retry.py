@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import httpx
 import pytest
 
@@ -87,3 +89,40 @@ def test_retry_read_timeout_retries() -> None:
     result = retry(_fn, max_attempts=3, backoff_base=0)
     assert result == "ok"
     assert len(calls) == 2
+
+
+def test_retry_429_retries() -> None:
+    """429 rate limits should be retried (other 4xx still raise)."""
+    calls = []
+    def _fn() -> str:
+        calls.append(1)
+        if len(calls) < 2:
+            resp = httpx.Response(
+                429,
+                request=httpx.Request("GET", "https://api.example.com/x"),
+            )
+            raise httpx.HTTPStatusError("rate limited", request=resp.request, response=resp)
+        return "ok"
+
+    result = retry(_fn, max_attempts=3, backoff_base=0)
+    assert result == "ok"
+    assert len(calls) == 2
+
+
+def test_retry_honors_retry_after() -> None:
+    """A Retry-After header should raise the wait above the backoff."""
+    calls = []
+    def _fn() -> str:
+        calls.append(1)
+        resp = httpx.Response(
+            429,
+            headers={"Retry-After": "30"},
+            request=httpx.Request("GET", "https://api.example.com/x"),
+        )
+        raise httpx.HTTPStatusError("rate limited", request=resp.request, response=resp)
+
+    sleeps = []
+    with pytest.raises(httpx.HTTPStatusError):
+        with patch("time.sleep", side_effect=lambda s: sleeps.append(s)):
+            retry(_fn, max_attempts=2, backoff_base=1)
+    assert sleeps == [30.0]

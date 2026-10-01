@@ -168,4 +168,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh pr comment $PR_NUMBER --body "⚠️ Failed to address feedback. Check the [workflow logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details."
+          if [ -f "$GITHUB_WORKSPACE/.gave-up" ]; then
+            # The CLI already posted the agent's give-up reason — don't post
+            # a second, contradictory comment.
+            rm -f "$GITHUB_WORKSPACE/.gave-up"
+          else
+            gh pr comment $PR_NUMBER --body "⚠️ Failed to address feedback. Check the [workflow logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details."
+          fi
