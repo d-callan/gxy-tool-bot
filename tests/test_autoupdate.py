@@ -391,10 +391,11 @@ def test_skip_dirs_combines_sources(tmp_path) -> None:
 # ---------------------------------------------------------------------------
 
 class _FakeGH:
-    def __init__(self, prs: dict[str, list[dict]]):
+    def __init__(self, prs: dict[str, list[dict]], existing_comments: list[str] | None = None):
         # keyed by state ("open", "closed", "all"); a PR dict may carry a
         # "_head" key to restrict it to that branch (absent = any head).
         self._prs = prs
+        self._existing = existing_comments or []
         self.comments: list[tuple[int, str]] = []
 
     def list_prs(self, head: str, state: str = "open") -> list[dict]:
@@ -402,6 +403,10 @@ class _FakeGH:
             p for p in self._prs.get(state, [])
             if p.get("_head") in (None, head)
         ]
+
+    def get_pr_comments(self, pr_number: int) -> list:
+        from types import SimpleNamespace
+        return [SimpleNamespace(body=b) for b in self._existing]
 
     def add_comment(self, number: int, body: str) -> None:
         self.comments.append((number, body))
@@ -459,6 +464,19 @@ def test_dedup_human_commits_never_clobbered(monkeypatch) -> None:
     # Maintainer was told how to re-enable autoupdate
     assert gh.comments and gh.comments[0][0] == 9
     assert "1.7" in gh.comments[0][1]
+
+
+def test_dedup_manual_commits_warning_posts_once(monkeypatch) -> None:
+    # The check runs every scheduled run — the warning must not spam the
+    # PR weekly once it's already there.
+    _patch_git(monkeypatch, exists=True, author="human-user")
+    gh = _FakeGH(
+        {"all": [{"number": 9, "title": "t"}]},
+        existing_comments=["This branch has manual commits. To allow auto-updates again..."],
+    )
+    d = check_autoupdate_pr_state(gh, "seqtk", "1.7")
+    assert not d.proceed
+    assert gh.comments == []
 
 
 def test_dedup_declined_same_version_skips(monkeypatch) -> None:

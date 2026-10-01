@@ -397,12 +397,20 @@ def check_autoupdate_pr_state(
         if author and author != BOT_AUTHOR:
             any_prs = gh.list_prs(branch, state="all")
             if any_prs:
-                gh.add_comment(
-                    any_prs[0]["number"],
-                    f"A newer version ({detected_latest}) is available, but this branch "
-                    "has manual commits. To allow auto-updates again, close the PR and "
-                    f"delete the `{branch}` branch.",
+                number = any_prs[0]["number"]
+                # The warning goes out once — this check runs every
+                # scheduled run, so re-posting would spam the PR weekly.
+                warned = any(
+                    "manual commits" in (c.body or "")
+                    for c in gh.get_pr_comments(number)
                 )
+                if not warned:
+                    gh.add_comment(
+                        number,
+                        f"A newer version ({detected_latest}) is available, but this branch "
+                        "has manual commits. To allow auto-updates again, close the PR and "
+                        f"delete the `{branch}` branch.",
+                    )
             return AutoupdateDecision(
                 False, f"branch {branch} has manual commits by {author}"
             )

@@ -176,15 +176,22 @@ jobs:
             echo "No changes to commit — skipping PR creation"
           else
           git commit -m "$(cat $GITHUB_WORKSPACE/.commit-msg)"
-          git push origin "$BRANCH" --force
+          PR_NUMBER=""
           if [ -f "$GITHUB_WORKSPACE/.autoupdate-pr" ]; then
-            # An open or closed-unmerged autoupdate PR already exists for this
-            # tool — the push above updated its branch; reopen or comment.
             PR_NUMBER=$(cat "$GITHUB_WORKSPACE/.autoupdate-pr")
             STATE=$(gh pr view "$PR_NUMBER" --json state --jq '.state')
             if [ "$STATE" = "CLOSED" ]; then
-              gh pr reopen "$PR_NUMBER" || gh pr comment "$PR_NUMBER" --body "🔄 Autoupdate pushed to \`$BRANCH\` but the PR could not be reopened — reopen it manually if you want this update."
+              # GitHub refuses to reopen a PR whose head was force-pushed
+              # while closed — reopen BEFORE pushing. If reopening fails,
+              # fall back to creating a fresh PR on the same branch.
+              if ! gh pr reopen "$PR_NUMBER"; then
+                echo "Could not reopen PR #$PR_NUMBER — will create a fresh PR"
+                PR_NUMBER=""
+              fi
             fi
+          fi
+          git push origin "$BRANCH" --force
+          if [ -n "$PR_NUMBER" ]; then
             # Sync the title with the version the branch now targets.
             gh pr edit "$PR_NUMBER" --title "$(cat $GITHUB_WORKSPACE/.pr-title)"
             gh pr comment "$PR_NUMBER" --body "🔄 Autoupdate run — pushed new commits. [View workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
