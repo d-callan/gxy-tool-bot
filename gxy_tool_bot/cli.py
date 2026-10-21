@@ -97,6 +97,17 @@ def _format_trace_block(result) -> str:
     return "\n".join(lines)
 
 
+def _post_comment(gh: GitHubClient, pr_number: int, body: str, comment_dir: str | None) -> None:
+    """Post a PR comment, or write it to ``comment_dir`` as the next numbered
+    file so a separate job holding the write token can post it."""
+    if comment_dir is None:
+        gh.add_comment(pr_number, body)
+        return
+    out = Path(comment_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    (out / f"{len(list(out.glob('*.md'))) + 1:02d}.md").write_text(body)
+
+
 @click.group()
 @click.option("--verbose", is_flag=True, help="Enable debug logging")
 @click.option("--quiet", is_flag=True, help="Only show warnings and errors")
@@ -580,7 +591,9 @@ def autoupdate(
 @click.option("--commit-msg-path", "commit_msg_path", type=click.Path(), default=None, help="Path to write the generated commit message")
 @click.option("--max-iterations", "max_iterations", type=int, default=None, help="Override max tool iterations per round (default: config)")
 @click.option("--max-retries", "max_retries", type=int, default=None, help="Override max validation retry rounds (default: config)")
-def address_feedback_cmd(pr_number: int, config_path: str, tool_dir: str, actor: str | None, commit_msg_path: str | None, max_iterations: int | None, max_retries: int | None) -> None:
+@click.option("--comment-dir", "comment_dir", type=click.Path(), default=None,
+              help="Write comments as numbered files here instead of posting them")
+def address_feedback_cmd(pr_number: int, config_path: str, tool_dir: str, actor: str | None, commit_msg_path: str | None, max_iterations: int | None, max_retries: int | None, comment_dir: str | None) -> None:
     """Address feedback on an existing PR by fixing tool files."""
     config = load_config(Path(config_path))
     api_key = os.environ.get(config.api.api_key_env)
@@ -599,7 +612,8 @@ def address_feedback_cmd(pr_number: int, config_path: str, tool_dir: str, actor:
             who = actor or "unknown"
             click.echo(f"Error: user '{who}' is not in allowed_maintainers list", err=True)
             with GitHubClient(gh_token, config.repo) as gh:
-                gh.add_comment(pr_number, f"⚠️ Feedback addressing blocked: user '{who}' is not in the allowed maintainers list.")
+                _post_comment(gh, pr_number, f"⚠️ Feedback addressing blocked: user '{who}' is not in the allowed maintainers list.",
+                              comment_dir)
             sys.exit(1)
 
     with GitHubClient(gh_token, config.repo) as gh:
@@ -616,14 +630,15 @@ def address_feedback_cmd(pr_number: int, config_path: str, tool_dir: str, actor:
             )
         except Exception as exc:
             logger.exception("Addressing feedback failed")
-            gh.add_comment(pr_number, f"⚠️ Failed to address feedback: {exc}")
+            _post_comment(gh, pr_number, f"⚠️ Failed to address feedback: {exc}", comment_dir)
             sys.exit(2)
 
         if generated.give_up_reason:
-            gh.add_comment(
-                pr_number,
+            _post_comment(
+                gh, pr_number,
                 f"⚠️ Feedback addressing could not be completed. The agent reported:\n\n> {generated.give_up_reason}\n\n"
                 "A maintainer review is needed.",
+                comment_dir,
             )
             click.echo(f"Agent gave up: {generated.give_up_reason}", err=True)
             _ws = os.environ.get("GITHUB_WORKSPACE", ".")
@@ -636,7 +651,7 @@ def address_feedback_cmd(pr_number: int, config_path: str, tool_dir: str, actor:
             error_msg = "⚠️ Feedback addressed but validation found errors. Changes will still be committed — use the `tool-bot:address-feedback` (or `address-feedback`) label again to have the bot fix these:\n\n"
             for err in validation.errors:
                 error_msg += f"- {err}\n"
-            gh.add_comment(pr_number, error_msg)
+            _post_comment(gh, pr_number, error_msg, comment_dir)
             click.echo(f"Validation failed: {len(validation.errors)} errors — changes will be committed", err=True)
             # Write flag file for workflow to detect
             _ws = os.environ.get("GITHUB_WORKSPACE", ".")
@@ -648,7 +663,7 @@ def address_feedback_cmd(pr_number: int, config_path: str, tool_dir: str, actor:
         summary += generated.summary
         if result.tool_call_trace:
             summary += f"\n\n{_format_trace_block(result)}"
-        gh.add_comment(pr_number, summary)
+        _post_comment(gh, pr_number, summary, comment_dir)
 
         # Generate commit message via LLM
         if commit_msg_path:
@@ -676,8 +691,12 @@ def address_feedback_cmd(pr_number: int, config_path: str, tool_dir: str, actor:
 @click.option("--config", "config_path", type=click.Path(exists=True), default=".gxy-tool-bot.yml")
 @click.option("--tool-dir", "tool_dir", type=click.Path(), required=True, help="Path to the tool directory in the PR branch")
 @click.option("--actor", default=None, help="GitHub user who triggered the action (for maintainer check)")
-def review(pr_number: int, config_path: str, tool_dir: str, actor: str | None) -> None:
-    """Review tool files on a PR and post findings as a comment."""
+@click.option("--comment-dir", "comment_dir", type=click.Path(), default=None,
+              help="Write comments as numbered files here instead of posting them")
+def review(
+    pr_number: int, config_path: str, tool_dir: str, actor: str | None, comment_dir: str | None,
+) -> None:
+    """Review tool files on a PR and post findings as a comment (or write it to --comment-dir)."""
     from gxy_tool_bot.review import collect_review_context, format_review_comment, run_review
 
     config = load_config(Path(config_path))
@@ -697,7 +716,8 @@ def review(pr_number: int, config_path: str, tool_dir: str, actor: str | None) -
             who = actor or "unknown"
             click.echo(f"Error: user '{who}' is not in allowed_maintainers list", err=True)
             with GitHubClient(gh_token, config.repo) as gh:
-                gh.add_comment(pr_number, f"⚠️ Review blocked: user '{who}' is not in the allowed maintainers list.")
+                _post_comment(gh, pr_number, f"⚠️ Review blocked: user '{who}' is not in the allowed maintainers list.",
+                              comment_dir)
             sys.exit(1)
 
     with GitHubClient(gh_token, config.repo) as gh:
@@ -705,20 +725,21 @@ def review(pr_number: int, config_path: str, tool_dir: str, actor: str | None) -
         try:
             ctx = collect_review_context(Path(tool_dir), config, gh=gh, pr_number=pr_number)
             if not ctx.existing_files:
-                gh.add_comment(pr_number, f"⚠️ No tool files found in {tool_dir}. Nothing to review.")
+                _post_comment(gh, pr_number, f"⚠️ No tool files found in {tool_dir}. Nothing to review.",
+                              comment_dir)
                 click.echo(f"No tool files found in {tool_dir}", err=True)
                 sys.exit(1)
 
             review_result = run_review(ctx, config, api_key, Path(tool_dir))
         except Exception as exc:
             logger.exception("Review failed")
-            gh.add_comment(pr_number, f"⚠️ Review failed: {exc}")
+            _post_comment(gh, pr_number, f"⚠️ Review failed: {exc}", comment_dir)
             sys.exit(2)
 
         comment = format_review_comment(review_result, Path(tool_dir).name)
-        gh.add_comment(pr_number, comment)
+        _post_comment(gh, pr_number, comment, comment_dir)
 
-    click.echo(f"Posted review on PR #{pr_number} ({len(review_result.findings)} findings)")
+    click.echo(f"Reviewed PR #{pr_number} ({len(review_result.findings)} findings)")
 
 
 @cli.command()

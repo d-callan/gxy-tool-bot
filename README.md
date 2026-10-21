@@ -162,8 +162,9 @@ Copy the workflow templates from the [`workflows/`](workflows/) directory in thi
 
 - **`on-tool-request.yml`** → `.github/workflows/gxy-on-tool-request.yml` — triggers on new issues with `tool-bot:tool-request` or `tool-bot:tool-update` label or when `tool-bot:retry-plan` label is added; runs the planner (auto-detects update issues)
 - **`on-ready-to-implement.yml`** → `.github/workflows/gxy-on-ready-to-implement.yml` — triggers when `tool-bot:ready-to-implement` or `tool-bot:retry-generate` label is added; runs the generator and opens a PR
-- **`on-pr-feedback.yml`** → `.github/workflows/gxy-on-pr-feedback.yml` — triggers when `tool-bot:address-feedback` label is added to a PR; reads review comments and CI failures, pushes fixes as new commits. Only works when the PR branch lives in this repository — on fork PRs it posts an explanatory comment and stops, since `GITHUB_TOKEN` can't push to a contributor's fork.
-- **`on-pr-review.yml`** → `.github/workflows/gxy-on-pr-review.yml` — triggers when `tool-bot:review` label is added to a PR; reviews tool files and posts structured findings as a comment
+- **`on-pr-feedback.yml`** → `.github/workflows/gxy-on-pr-feedback.yml` — triggers when `tool-bot:address-feedback` label is added to a PR; reads review comments and CI failures, pushes fixes as new commits. The bot runs in a job with a read-only token and no shell tools (so no `planemo_test` or `run_in_conda`; it fixes from validation errors and CI output); a separate job without the LLM key checks its output, commits and pushes. Only works when the PR branch lives in this repository, since `GITHUB_TOKEN` can't push to a contributor's fork.
+- **`on-pr-review.yml`** → `.github/workflows/gxy-on-pr-review.yml` — triggers when `tool-bot:review` label is added to a PR; reviews tool files and posts structured findings as a comment. The review runs with a read-only token and no shell tools; a separate job without the LLM key posts it.
+- **`on-fork-pr-review.yml`** → `.github/workflows/gxy-on-fork-pr-review.yml` — reviews PRs from forks after a maintainer approves the run (see [Fork PR reviews](#fork-pr-reviews)). Optional; needs extra setup.
 - **`autoupdate.yml`** → `.github/workflows/gxy-autoupdate.yml` — runs on a cron schedule (edit the `cron:` line to set the frequency); detects outdated tool versions and opens one PR per tool. Requires `autoupdate.enabled: true` in `.gxy-tool-bot.yml`
 
 > **CI artifact assumption:** The feedback workflow fetches CI failure details from GitHub Actions artifacts. This assumes the CI workflow uploads failure reports as artifacts (e.g. lint reports as `.txt` files, planemo test results as `.json`), following the same conventions as the [tools-iuc](https://github.com/galaxyproject/tools-iuc) repo's `pr.yaml` workflow. If your repo uses a different CI setup that doesn't upload artifacts on failure, the bot will not be able to include CI failure details in its feedback context.
@@ -185,6 +186,23 @@ Go to Settings → Secrets and variables → Actions → New repository secret:
 | `GXY_TOOL_BOT_API_KEY` | Your LLM API key (e.g. OpenRouter key) | Plan + generate workflows |
 
 The `GITHUB_TOKEN` (automatically provided by GitHub Actions) is used for issue comments, labels, and PR creation — no extra secret needed.
+
+### Fork PR reviews
+
+Fork PRs get no secrets on normal PR events, so `on-fork-pr-review.yml` runs on `pull_request_target` and never executes PR content: it extracts the PR's tool files as plain data and reviews them with no shell tools. Each push to a fork PR starts a run that waits until a maintainer approves it, for that exact commit. The PR shows "This branch is waiting for a deployment approval"; approve from the linked run with **Review deployments**. Fork PRs get review only, not feedback.
+
+Setup:
+
+1. **Environment:** Settings → Environments → New environment `fork-review`, with required reviewers (the maintainers who may approve). Optionally add a separate `GXY_TOOL_BOT_API_KEY` secret there; it takes precedence over the repository secret, so it can be revoked on its own.
+2. **Allow `pull_request_target`:** public repositories block this event by default unless an Actions event policy allows it (enforced from November 2026). Allow it for this workflow only (needs repo admin):
+
+   ```bash
+   gh api -X POST repos/OWNER/REPO/actions/policies --input - <<'EOF'
+   {"name": "fork review", "enforcement": "active",
+    "conditions": {"workflow_path": {"include": [".github/workflows/gxy-on-fork-pr-review.yml"], "exclude": []}},
+    "rules": [{"type": "restrict_action_events", "parameters": {"allowed_events": ["pull_request_target"]}}]}
+   EOF
+   ```
 
 ### 7. Enable Issues
 

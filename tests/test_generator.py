@@ -2011,6 +2011,18 @@ def test_detect_strays_finds_untracked_files(tmp_path: Path) -> None:
     assert "test-data/sample.txt" not in strays
 
 
+def test_detect_strays_reports_symlink_leaving_the_dir(tmp_path: Path) -> None:
+    """A symlink pointing outside the tool dir is a stray, not a crash."""
+    tool_dir = tmp_path / "tool"
+    tool_dir.mkdir()
+    (tmp_path / "outside.txt").write_text("not a tool file")
+    fw = FileWriter(tool_dir)
+    fw.write_file({"path": "tool.xml", "content": "<tool/>"})
+    (tool_dir / "link").symlink_to(tmp_path / "outside.txt")
+
+    assert _detect_strays(fw) == ["link"]
+
+
 def test_detect_strays_excludes_metadata_files(tmp_path: Path) -> None:
     """_detect_strays should exclude .tool-name and .agent-notes."""
     fw = FileWriter(tmp_path)

@@ -465,7 +465,9 @@ def _detect_strays(file_writer: FileWriter) -> list[str]:
     for f in output_dir.rglob("*"):
         if not f.is_file():
             continue
-        rel = f.resolve().relative_to(output_dir).as_posix()
+        # Path inside the dir, not the link target: a symlink pointing out of
+        # the dir is still a stray here.
+        rel = f.relative_to(output_dir).as_posix()
         if rel in (".tool-name", ".agent-notes"):
             continue
         if rel not in tracked:

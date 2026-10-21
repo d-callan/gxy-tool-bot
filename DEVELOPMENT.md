@@ -184,9 +184,11 @@ Validation tests are in `tests/test_generator.py` (they test
 ## CI Environment
 
 The CI workflows install `planemo` and `micromamba` (for the `run_in_conda` tool),
-except `on-pr-review.yml`: review reads PR content next to secrets, so it keeps
-planemo, micromamba and the runner's `/usr/bin/conda` off `PATH` and gets no
-shell tools (PR CI lints and tests instead).
+except `on-pr-review.yml`, `on-fork-pr-review.yml` and `on-pr-feedback.yml`: they
+run the model next to the LLM key, so they keep planemo, micromamba and the
+runner's `/usr/bin/conda` off `PATH` and the bot offers no shell tools (PR CI
+lints and tests instead). Feedback installs planemo in a separate venv, used
+only by its format step.
 Micromamba is installed from `https://micro.mamba.pm/api/micromamba/linux-64/latest`
 and added to `PATH`. The `run_in_conda` tool uses it to create cached conda
 environments from bioconda/conda-forge and run commands directly. If neither
